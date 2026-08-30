@@ -5,6 +5,7 @@ import { spawn } from "child_process";
 import type { VideoItem } from "./types";
 import { getVideoDir } from "./config";
 import { BUNDLED_FFMPEG_PATH, BUNDLED_FFPROBE_PATH } from "./ffmpeg-bin";
+import { isFastStart, remuxFastStart, FASTSTART_EXTS } from "./faststart";
 export const VIDEO_EXTENSIONS = new Set([
 "mp4", "webm", "ogg", "ogv", "mov", "mkv", "avi", "wmv", "flv", "m4v", "ts",
 ]);
@@ -32,6 +33,11 @@ size: number;
 mtimeMs: number;
 duration: number;
 hasThumbnail: boolean;
+// Fast-start optimization state for mp4/m4v/mov files (see lib/faststart.ts).
+// undefined = not checked yet, false = doesn't need it or isn't applicable,
+// true = an optimized copy exists at optimizedDir/<id>.mp4 and should be
+// served instead of the original.
+optimized?: boolean;
 }
 interface CacheFile {
 entries: Record<string, CacheEntry>;
@@ -40,6 +46,7 @@ ffmpegAvailable: boolean | null;
 interface LibraryPaths {
 root: string;
 thumbDir: string;
+optimizedDir: string;
 cacheFile: string;
 }
 // The chosen library folder can change at runtime, so caches are keyed per
@@ -59,14 +66,16 @@ const dir = cacheDirFor(root);
 return {
 root,
 thumbDir: path.join(dir, "thumbnails"),
+optimizedDir: path.join(dir, "optimized"),
 cacheFile: path.join(dir, "library.json"),
 };
 }
 function makeId(relativePath: string): string {
 return crypto.createHash("md5").update(relativePath).digest("hex");
 }
-async function ensureDirs(thumbDir: string) {
+async function ensureDirs(thumbDir: string, optimizedDir?: string) {
 await fs.mkdir(thumbDir, { recursive: true });
+if (optimizedDir) await fs.mkdir(optimizedDir, { recursive: true });
 }
 async function loadCache(paths: LibraryPaths): Promise<CacheFile> {
 if (memCache && memCacheRoot === paths.root) return memCache;
@@ -80,7 +89,7 @@ memCacheRoot = paths.root;
 return memCache!;
 }
 async function saveCache(paths: LibraryPaths, cache: CacheFile) {
-await ensureDirs(paths.thumbDir);
+await ensureDirs(paths.thumbDir, paths.optimizedDir);
 await fs.writeFile(paths.cacheFile, JSON.stringify(cache), "utf-8");
 }
 /** Call after the user picks a new library folder so stale data isn't served. */
@@ -88,6 +97,65 @@ export function invalidateLibraryCache() {
 memCache = null;
 memCacheRoot = null;
 scanInFlight = null;
+}
+// --- background fast-start remux queue ---
+// Deliberately separate from the scan itself: remuxing 300 files (even at
+// -c copy speed) shouldn't hold up the library from showing up. This runs
+// after getLibrary() has already returned, one/two files at a time so it
+// doesn't compete with normal disk I/O, and updates the on-disk cache as
+// each file finishes so a server restart doesn't repeat finished work.
+const remuxInProgress = new Set<string>();
+let remuxQueueRunning = false;
+const remuxQueue: { paths: LibraryPaths; id: string; absPath: string }[] = [];
+
+async function processRemuxQueue() {
+if (remuxQueueRunning) return;
+remuxQueueRunning = true;
+try {
+while (remuxQueue.length) {
+const batch = remuxQueue.splice(0, 2);
+await Promise.all(
+batch.map(async ({ paths, id, absPath }) => {
+if (remuxInProgress.has(id)) return;
+remuxInProgress.add(id);
+try {
+const outPath = path.join(paths.optimizedDir, `${id}.mp4`);
+const ok = await remuxFastStart(FFMPEG_BIN, absPath, outPath);
+const cache = await loadCache(paths);
+if (cache.entries[id]) {
+cache.entries[id].optimized = ok;
+await saveCache(paths, cache);
+}
+if (!ok) await fs.unlink(outPath).catch(() => {});
+} finally {
+remuxInProgress.delete(id);
+}
+})
+);
+}
+} finally {
+remuxQueueRunning = false;
+}
+}
+
+function scheduleFastStartCheck(
+paths: LibraryPaths,
+id: string,
+absPath: string,
+ext: string,
+cache: CacheFile
+) {
+if (!FASTSTART_EXTS.has(ext)) return;
+if (cache.entries[id]?.optimized !== undefined) return; // already checked
+isFastStart(absPath).then((fast) => {
+if (fast === null) return; // couldn't determine — leave alone
+if (fast === true) {
+if (cache.entries[id]) cache.entries[id].optimized = false; // fine as-is, no copy needed
+return;
+}
+remuxQueue.push({ paths, id, absPath });
+processRemuxQueue();
+});
 }
 // --- simple concurrency-limited queue so we never spawn unbounded ffmpeg/ffprobe processes ---
 async function runWithConcurrency<T, R>(
@@ -196,7 +264,7 @@ const paths = await getPaths();
 if (!paths) return [];
 if (scanInFlight) return scanInFlight;
 scanInFlight = (async () => {
-await ensureDirs(paths.thumbDir);
+await ensureDirs(paths.thumbDir, paths.optimizedDir);
 const cache = await loadCache(paths);
 if (cache.ffmpegAvailable === null) {
 cache.ffmpegAvailable = await checkFfmpegAvailable();
@@ -225,6 +293,10 @@ const unchanged =
 existing && existing.size === stat.size && existing.mtimeMs === stat.mtimeMs;
 if (unchanged && !forceRescan) {
 items.push(toVideoItem(existing, f.folder, f.relativePath));
+if (cache.ffmpegAvailable) {
+const ext = path.extname(f.relativePath).slice(1).toLowerCase();
+scheduleFastStartCheck(paths, id, f.abs, ext, cache);
+}
 } else {
 pending.push({ ...f, id, stat });
 }
@@ -244,15 +316,20 @@ duration,
 hasThumbnail,
 };
 cache.entries[f.id] = entry;
+if (cache.ffmpegAvailable) {
+const ext = path.extname(f.relativePath).slice(1).toLowerCase();
+scheduleFastStartCheck(paths, f.id, f.abs, ext, cache);
+}
 return toVideoItem(entry, f.folder, f.relativePath);
 });
 items.push(...processed);
 }
-// prune deleted files from cache + their thumbnails
+// prune deleted files from cache + their thumbnails/optimized copies
 for (const id of Object.keys(cache.entries)) {
 if (!seenIds.has(id)) {
 delete cache.entries[id];
 fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
+fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
 }
 }
 await saveCache(paths, cache);
@@ -294,6 +371,11 @@ if (!paths) return null;
 const cache = await loadCache(paths);
 const entry = cache.entries[id];
 if (!entry) return null;
+if (entry.optimized) {
+const optimizedPath = path.join(paths.optimizedDir, `${id}.mp4`);
+const stat = await fs.stat(optimizedPath).catch(() => null);
+if (stat) return { absPath: optimizedPath, ext: "mp4" };
+}
 const absPath = path.join(paths.root, entry.relativePath);
 // guard against any path traversal — resolved path must stay inside the library root
 if (!absPath.startsWith(paths.root)) return null;
