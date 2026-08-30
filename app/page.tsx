@@ -98,7 +98,7 @@ return t > 5;
 }, [continueIds, videos]);
 const folderRows = useMemo(() => {
 return folders
-.map((f) => ({ name: f, items: videos.filter((v) => v.folder === f) }))
+.map((f) => ({ name: f, items: videos.filter((v) => v.folder === f).slice(0, 30) }))
 .filter((r) => r.items.length > 0);
 }, [folders, videos]);
 const hero = recentlyAdded[0];

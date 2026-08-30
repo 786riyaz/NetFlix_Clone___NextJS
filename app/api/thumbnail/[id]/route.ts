@@ -1,6 +1,6 @@
 import { createReadStream, existsSync, statSync } from "fs";
-import { Readable } from "stream";
 import { resolveThumbnailPath } from "@/lib/scanner";
+import { nodeStreamToWeb } from "@/lib/stream";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
@@ -10,7 +10,8 @@ return new Response("Not found", { status: 404 });
 }
 const stat = statSync(thumbPath);
 const nodeStream = createReadStream(thumbPath);
-const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream;
+nodeStream.on("error", () => {});
+const webStream = nodeStreamToWeb(nodeStream);
 return new Response(webStream, {
 status: 200,
 headers: {

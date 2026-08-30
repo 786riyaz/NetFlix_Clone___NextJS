@@ -204,13 +204,22 @@ cache.ffmpegAvailable = await checkFfmpegAvailable();
 const found: { relativePath: string; abs: string; folder: string }[] = [];
 await walk(paths.root, paths.root, found);
 const seenIds = new Set<string>();
+// fs.stat for every file used to run sequentially here (one await per
+// file, in a for-loop) — for a library of a few hundred videos, that
+// serialized round-trip cost alone was the main source of slowness,
+// even on every normal page load, not just first-time scans. Statting
+// all files concurrently (bounded, like the ffprobe pass below) turns
+// an O(n) chain of awaits into a handful of parallel batches.
+const statResults = await runWithConcurrency(found, 24, async (f) => {
+const stat = await fs.stat(f.abs).catch(() => null);
+return { f, stat };
+});
 const items: VideoItem[] = [];
 const pending: { relativePath: string; abs: string; folder: string; id: string; stat: import("fs").Stats }[] = [];
-for (const f of found) {
+for (const { f, stat } of statResults) {
+if (!stat) continue;
 const id = makeId(f.relativePath);
 seenIds.add(id);
-const stat = await fs.stat(f.abs).catch(() => null);
-if (!stat) continue;
 const existing = cache.entries[id];
 const unchanged =
 existing && existing.size === stat.size && existing.mtimeMs === stat.mtimeMs;
