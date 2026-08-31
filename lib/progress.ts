@@ -43,3 +43,13 @@ ids.push(key.slice(POS_PREFIX.length));
 }
 return ids;
 }
+export type ViewMode = "browse" | "grid" | "list";
+export function getViewMode(): ViewMode {
+if (typeof window === "undefined") return "browse";
+const v = window.localStorage.getItem("vault:view");
+return v === "grid" || v === "list" || v === "browse" ? v : "browse";
+}
+export function setViewMode(v: ViewMode) {
+if (typeof window === "undefined") return;
+window.localStorage.setItem("vault:view", v);
+}

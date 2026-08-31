@@ -1,13 +1,17 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { VideoItem } from "@/lib/types";
 import { fmtDuration, fmtSize, fmtDate } from "@/lib/format";
-import { getAllProgressIds, getSavedTime, isWatched } from "@/lib/progress";
+import { getAllProgressIds, getSavedTime, isWatched, getViewMode, setViewMode, ViewMode } from "@/lib/progress";
+import { pushToast } from "@/lib/toast";
 import Header, { SortKey } from "@/components/Header";
 import Row from "@/components/Row";
 import LazyGrid from "@/components/LazyGrid";
 import Player from "@/components/Player";
 import FolderPicker from "@/components/FolderPicker";
+import SkeletonGrid from "@/components/SkeletonGrid";
+import BackToTop from "@/components/BackToTop";
+import ToastContainer from "@/components/ToastContainer";
 export default function HomePage() {
 const [videos, setVideos] = useState<VideoItem[]>([]);
 const [folders, setFolders] = useState<string[]>([]);
@@ -23,6 +27,20 @@ const [sort, setSort] = useState<SortKey>("date");
 const [folder, setFolder] = useState("");
 const [playing, setPlaying] = useState<VideoItem | null>(null);
 const [continueIds, setContinueIds] = useState<string[]>([]);
+const [view, setView] = useState<ViewMode>("browse");
+const searchInputRef = useRef<HTMLInputElement>(null);
+const isFirstLoad = useRef(true);
+
+// Restore the last-used view mode once we're on the client (avoids an
+// SSR/client mismatch since it lives in localStorage).
+useEffect(() => {
+setView(getViewMode());
+}, []);
+function changeView(v: ViewMode) {
+setView(v);
+setViewMode(v);
+}
+
 async function load(rescan = false) {
 if (rescan) setRescanning(true);
 else setLoading(true);
@@ -37,11 +55,17 @@ setFfmpegAvailable(data.ffmpegAvailable);
 setVideoDirState(data.videoDir);
 setConfigured(data.configured);
 if (!data.configured) setShowPicker(true);
+if (rescan && !isFirstLoad.current) {
+pushToast(`Library rescanned — ${data.videos.length} video${data.videos.length === 1 ? "" : "s"} found.`, "success");
+}
 } catch (e: any) {
-setError(e.message || "Failed to load library");
+const msg = e.message || "Failed to load library";
+setError(msg);
+if (!isFirstLoad.current) pushToast(msg, "error");
 } finally {
 setLoading(false);
 setRescanning(false);
+isFirstLoad.current = false;
 }
 }
 useEffect(() => {
@@ -51,6 +75,29 @@ setContinueIds(getAllProgressIds());
 useEffect(() => {
 if (!playing) setContinueIds(getAllProgressIds());
 }, [playing]);
+
+// Keyboard shortcuts: "/" focuses search (unless already typing
+// somewhere), Escape closes the player/folder picker or clears an
+// active search — the two things people reach for most in a library
+// this size.
+useEffect(() => {
+function onKeyDown(e: KeyboardEvent) {
+const target = e.target as HTMLElement | null;
+const isTyping =
+target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+if (e.key === "/" && !isTyping) {
+e.preventDefault();
+searchInputRef.current?.focus();
+} else if (e.key === "Escape") {
+if (playing) return; // Player handles its own Escape (fullscreen etc.)
+if (showPicker && configured) setShowPicker(false);
+else if (isTyping && search) setSearch("");
+}
+}
+window.addEventListener("keydown", onKeyDown);
+return () => window.removeEventListener("keydown", onKeyDown);
+}, [playing, showPicker, configured, search]);
+
 async function handleFolderSelected(path: string) {
 const res = await fetch("/api/config", {
 method: "POST",
@@ -60,6 +107,7 @@ body: JSON.stringify({ videoDir: path }),
 const data = await res.json();
 if (!res.ok) throw new Error(data.error || "Could not use that folder");
 setShowPicker(false);
+pushToast("Library folder updated — indexing…", "info");
 await load(true);
 }
 const filtered = useMemo(() => {
@@ -108,6 +156,10 @@ const siblings = videos.filter((v) => v.folder === playing.folder && v.id !== pl
 return siblings.sort((a, b) => a.name.localeCompare(b.name));
 }, [playing, videos]);
 const isFiltering = search.trim().length > 0 || folder.length > 0;
+// Browse mode keeps the Netflix-style hero + rows layout. Grid/List modes
+// are for when you want to scan the whole (possibly 300+ video) library
+// at once — hero and duplicate folder rows would just be noise there.
+const showBrowseLayout = view === "browse" && !isFiltering;
 return (
 <main className="min-h-screen pb-16">
 <Header
@@ -121,7 +173,11 @@ folders={folders}
 onRescan={() => load(true)}
 rescanning={rescanning}
 onChangeFolder={() => setShowPicker(true)}
+view={view}
+onView={changeView}
+searchInputRef={searchInputRef}
 />
+<ToastContainer />
 {showPicker && (
 <FolderPicker
 initialPath={videoDir}
@@ -130,9 +186,7 @@ onCancel={() => setShowPicker(false)}
 onSelect={handleFolderSelected}
 />
 )}
-{loading && (
-<div className="pt-32 px-10 text-muted">Indexing your library…</div>
-)}
+{loading && <SkeletonGrid />}
 {error && (
 <div className="pt-32 px-10 text-accent">
 {error}. Make sure the server can read the configured folder, then hit Rescan.
@@ -170,7 +224,7 @@ ffmpeg not found on the server — durations and thumbnails are unavailable. Pla
 </div>
 </div>
 )}
-{!isFiltering && hero && (
+{showBrowseLayout && hero && (
 <section className="relative h-[46vh] sm:h-[62vh] w-full mb-10 overflow-hidden">
 {hero.hasThumbnail ? (
 // eslint-disable-next-line @next/next/no-img-element
@@ -207,7 +261,7 @@ Play
 </div>
 </section>
 )}
-{!isFiltering && (
+{showBrowseLayout && (
 <>
 <Row title="Continue Watching" videos={continueWatching} onPlay={setPlaying} emptyHint="Nothing in progress — start watching something below." />
 <Row title="Recently Added" videos={recentlyAdded} onPlay={setPlaying} />
@@ -216,11 +270,14 @@ Play
 ))}
 </>
 )}
+{(view !== "browse" || isFiltering) && (
+<div className="pt-24" />
+)}
 <section>
 <h2 className="text-[17px] sm:text-[19px] font-semibold mb-3 px-4 sm:px-10">
 {isFiltering ? `Results (${filtered.length})` : "All Videos"}
 </h2>
-<LazyGrid videos={filtered} onPlay={setPlaying} />
+<LazyGrid videos={filtered} onPlay={setPlaying} mode={view === "list" ? "list" : "grid"} />
 </section>
 </>
 )}
@@ -232,6 +289,7 @@ onClose={() => setPlaying(null)}
 onPlayVideo={(v) => setPlaying(v)}
 />
 )}
+<BackToTop />
 </main>
 );
 }

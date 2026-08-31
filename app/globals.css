@@ -94,6 +94,19 @@ rgba(255, 255, 255, 0.04) 63%
 background-size: 400% 100%;
 animation: shimmer 1.4s ease-in-out infinite;
 }
+@keyframes toast-in {
+0% {
+opacity: 0;
+transform: translateY(8px);
+}
+100% {
+opacity: 1;
+transform: translateY(0);
+}
+}
+.animate-toast-in {
+animation: toast-in 0.2s ease-out;
+}
 @media (prefers-reduced-motion: reduce) {
 * {
 animation-duration: 0.01ms !important;
