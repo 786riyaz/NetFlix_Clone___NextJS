@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { promises as fs } from "fs";
 import { BUNDLED_FFMPEG_PATH } from "./ffmpeg-bin";
 import { markOptimized } from "./scanner";
+
 export type JobState = "queued" | "processing" | "done" | "error";
 export interface Job {
 id: string;
@@ -9,15 +10,18 @@ state: JobState;
 progressPct: number;
 error?: string;
 }
+
 const jobs = new Map<string, Job>();
 const queue: { id: string; absPath: string; outPath: string; duration: number }[] = [];
 let running = false;
+
 export function getJob(id: string): Job | null {
 return jobs.get(id) || null;
 }
+
 /** Runs one file at a time — a full re-encode is genuinely CPU-heavy, and
-* this app already streams other videos off the same disk, so we don't
-* want to compete with active playback. */
+ * this app already streams other videos off the same disk, so we don't
+ * want to compete with active playback. */
 async function processQueue() {
 if (running) return;
 running = true;
@@ -45,6 +49,7 @@ await markOptimized(item.id, false);
 running = false;
 }
 }
+
 export function enqueueTranscode(ffmpegBin: string, id: string, absPath: string, outPath: string, duration: number) {
 const existing = jobs.get(id);
 if (existing && (existing.state === "queued" || existing.state === "processing")) return existing;
@@ -54,6 +59,7 @@ queue.push({ id, absPath, outPath, duration });
 processQueue();
 return job;
 }
+
 function transcodeWithProgress(
 absPath: string,
 outPath: string,

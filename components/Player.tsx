@@ -10,18 +10,30 @@ markWatched,
 getVolume,
 setVolume as persistVolume,
 } from "@/lib/progress";
+import ManageControls from "./ManageControls";
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 export default function Player({
 video,
-upNext,
+queue,
 onClose,
 onPlayVideo,
+superAdmin = false,
+onRenamed,
+onDeleted,
+folderPaths = [],
 }: {
 video: VideoItem;
-upNext: VideoItem[];
+queue: VideoItem[];
 onClose: () => void;
 onPlayVideo: (v: VideoItem) => void;
+superAdmin?: boolean;
+onRenamed?: (v: VideoItem) => void;
+onDeleted?: (id: string) => void;
+folderPaths?: string[];
 }) {
+const queueIdx = queue.findIndex((v) => v.id === video.id);
+const prevVideo = queueIdx > 0 ? queue[queueIdx - 1] : null;
+const nextVideo = queueIdx >= 0 && queueIdx < queue.length - 1 ? queue[queueIdx + 1] : null;
 const videoRef = useRef<HTMLVideoElement>(null);
 const [playing, setPlaying] = useState(false);
 const [current, setCurrent] = useState(0);
@@ -168,8 +180,11 @@ clearProgress(video.id);
 if (videoRef.current) videoRef.current.currentTime = 0;
 }
 function playNext() {
-if (upNext.length) onPlayVideo(upNext[0]);
+if (nextVideo) onPlayVideo(nextVideo);
 else onClose();
+}
+function playPrevious() {
+if (prevVideo) onPlayVideo(prevVideo);
 }
 function seekToPercent(pct: number) {
 const v = videoRef.current;
@@ -197,6 +212,14 @@ toggleFullscreen();
 break;
 case "m":
 toggleMute();
+break;
+case "n":
+case "N":
+playNext();
+break;
+case "p":
+case "P":
+playPrevious();
 break;
 case "Home": {
 const v = videoRef.current;
@@ -233,7 +256,7 @@ break;
 window.addEventListener("keydown", onKey);
 return () => window.removeEventListener("keydown", onKey);
 // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [showShortcuts]);
+}, [showShortcuts, video.id, nextVideo, prevVideo]);
 const pct = duration ? (current / duration) * 100 : 0;
 return (
 <div
@@ -305,6 +328,20 @@ showControls ? "opacity-100" : "opacity-0 pointer-events-none"
 <div className="text-xs sm:text-sm text-muted truncate">{video.folder || "Library root"}</div>
 </div>
 <div className="flex items-center gap-2 shrink-0">
+{superAdmin && onRenamed && onDeleted && (
+<ManageControls
+video={video}
+size="md"
+folderPaths={folderPaths}
+onRenamed={(v) => {
+onRenamed(v);
+}}
+onDeleted={(id) => {
+onDeleted(id);
+onClose();
+}}
+/>
+)}
 <button
 onClick={() => setShowShortcuts((s) => !s)}
 className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring"
@@ -332,6 +369,7 @@ className="absolute top-16 right-4 sm:right-6 z-10 w-64 rounded-lg bg-black/90 b
 <div className="text-sm font-semibold mb-2">Keyboard shortcuts</div>
 <Shortcut keys="Space / K" desc="Play / pause" />
 <Shortcut keys="← / →" desc="Back / forward 10s" />
+<Shortcut keys="N / P" desc="Next / previous video" />
 <Shortcut keys="Home" desc="Jump to start" />
 <Shortcut keys="End" desc="Jump to end" />
 <Shortcut keys="0–9" desc="Jump to 0%–90%" />
@@ -389,11 +427,17 @@ aria-label="Seek"
 <IconButton onClick={togglePlay} label={playing ? "Pause" : "Play"}>
 {playing ? <PauseIcon /> : <PlayIcon />}
 </IconButton>
+<IconButton onClick={playPrevious} label="Previous video" disabled={!prevVideo}>
+<PrevTrackIcon />
+</IconButton>
 <IconButton onClick={() => skip(-10)} label="Back 10 seconds">
 <BackIcon />
 </IconButton>
 <IconButton onClick={() => skip(10)} label="Forward 10 seconds">
 <FwdIcon />
+</IconButton>
+<IconButton onClick={playNext} label="Next video" disabled={!nextVideo}>
+<NextTrackIcon />
 </IconButton>
 <div className="flex items-center gap-1.5 group/vol">
 <IconButton onClick={toggleMute} label={muted ? "Unmute" : "Mute"}>
@@ -406,7 +450,7 @@ max={1}
 step={0.01}
 value={muted ? 0 : volume}
 onChange={(e) => handleVolume(Number(e.target.value))}
-className="w-12 sm:w-0 sm:group-hover/vol:w-20 transition-all duration-200 overflow-hidden"
+className="w-14 sm:w-0 sm:group-hover/vol:w-20 transition-all duration-200 overflow-hidden"
 aria-label="Volume"
 />
 </div>
@@ -450,9 +494,9 @@ Reset
 </div>
 </div>
 </div>
-{upNext.length > 0 && (
-<div className="absolute bottom-24 sm:bottom-28 right-4 sm:right-6 text-xs text-muted">
-Up next: <span className="text-white">{upNext[0].name}</span>
+{nextVideo && (
+<div className="absolute bottom-24 sm:bottom-28 right-4 sm:right-6 text-xs text-muted max-w-[50%] truncate">
+Up next: <span className="text-white">{nextVideo.name}</span>
 </div>
 )}
 </div>
@@ -470,17 +514,20 @@ function IconButton({
 children,
 onClick,
 label,
+disabled = false,
 }: {
 children: React.ReactNode;
 onClick: () => void;
 label: string;
+disabled?: boolean;
 }) {
 return (
 <button
 onClick={onClick}
+disabled={disabled}
 aria-label={label}
 title={label}
-className="w-9 h-9 rounded-full hover:bg-white/10 flex items-center justify-center focus-ring shrink-0"
+className="w-9 h-9 rounded-full hover:enabled:bg-white/10 disabled:opacity-30 flex items-center justify-center focus-ring shrink-0"
 >
 {children}
 </button>
@@ -515,6 +562,20 @@ return (
 <path d="M21 12a9 9 0 1 1-9-9" />
 <path d="M21 5v6h-6" />
 <text x="8" y="16" fontSize="7" fill="#fff" stroke="none">10</text>
+</svg>
+);
+}
+function PrevTrackIcon() {
+return (
+<svg width="17" height="17" viewBox="0 0 24 24" fill="#fff">
+<path d="M6 5h2v14H6zM20 5v14l-11-7z" />
+</svg>
+);
+}
+function NextTrackIcon() {
+return (
+<svg width="17" height="17" viewBox="0 0 24 24" fill="#fff">
+<path d="M16 5h2v14h-2zM4 5v14l11-7z" />
 </svg>
 );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
+import { ROLE_HEADER } from "@/lib/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 async function listWindowsDrives(): Promise<string[]> {
@@ -39,6 +40,9 @@ const parent = atFsRoot ? (process.platform === "win32" ? "" : null) : parentDir
 return NextResponse.json({ current: resolved, parent, entries });
 }
 export async function GET(req: NextRequest) {
+if (req.headers.get(ROLE_HEADER) !== "admin") {
+return NextResponse.json({ error: "Admin access is required to browse the filesystem." }, { status: 403 });
+}
 const requested = req.nextUrl.searchParams.get("path");
 if (!requested) {
 if (process.platform === "win32") {

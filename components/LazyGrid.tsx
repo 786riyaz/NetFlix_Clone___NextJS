@@ -8,10 +8,18 @@ export default function LazyGrid({
 videos,
 onPlay,
 mode = "grid",
+superAdmin = false,
+onRenamed,
+onDeleted,
+folderPaths = [],
 }: {
 videos: VideoItem[];
 onPlay: (v: VideoItem) => void;
 mode?: "grid" | "list";
+superAdmin?: boolean;
+onRenamed?: (v: VideoItem) => void;
+onDeleted?: (id: string) => void;
+folderPaths?: string[];
 }) {
 const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 const sentinelRef = useRef<HTMLDivElement>(null);
@@ -41,14 +49,14 @@ return (
 {mode === "list" ? (
 <div className="flex flex-col gap-1">
 {visible.map((v) => (
-<ListItem key={v.id} video={v} onPlay={onPlay} />
+<ListItem key={v.id} video={v} onPlay={onPlay} superAdmin={superAdmin} onRenamed={onRenamed} onDeleted={onDeleted} folderPaths={folderPaths} />
 ))}
 </div>
 ) : (
-<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+<div className="grid grid-cols-2 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3">
 {visible.map((v) => (
 <div key={v.id} className="w-full">
-<Card video={v} onPlay={onPlay} layout="grid" />
+<Card video={v} onPlay={onPlay} layout="grid" superAdmin={superAdmin} onRenamed={onRenamed} onDeleted={onDeleted} folderPaths={folderPaths} />
 </div>
 ))}
 </div>

@@ -22,4 +22,5 @@ generatedAt: number;
 ffmpegAvailable: boolean;
 videoDir: string | null; // the folder currently configured, if any
 configured: boolean; // false on first run, before a folder has been chosen
+superAdmin: boolean; // whether the current session can rename/delete/move/optimize
 }

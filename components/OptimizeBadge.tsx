@@ -46,7 +46,7 @@ pushToast(`Optimizing "${videoName}" failed.`, "error");
 }
 }, 1200);
 }
-const dim = size === "sm" ? "w-6 h-6" : "w-7 h-7";
+const dim = size === "sm" ? "w-8 h-8 sm:w-6 sm:h-6" : "w-9 h-9 sm:w-7 sm:h-7";
 if (state === "queued" || state === "processing") {
 return (
 <div

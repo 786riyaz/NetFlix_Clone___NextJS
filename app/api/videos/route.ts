@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getLibrary, isFfmpegAvailable } from "@/lib/scanner";
 import { getVideoDir } from "@/lib/config";
+import { ROLE_HEADER } from "@/lib/auth";
 import type { LibraryResponse } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ generatedAt: Date.now(),
 ffmpegAvailable,
 videoDir,
 configured: !!videoDir,
+superAdmin: req.headers.get(ROLE_HEADER) === "admin",
 };
 return NextResponse.json(body);
 }

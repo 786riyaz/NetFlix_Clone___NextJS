@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVideoDir, setVideoDir } from "@/lib/config";
 import { invalidateLibraryCache } from "@/lib/scanner";
+import { ROLE_HEADER } from "@/lib/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET() {
@@ -8,6 +9,9 @@ const videoDir = await getVideoDir();
 return NextResponse.json({ videoDir, configured: !!videoDir });
 }
 export async function POST(req: NextRequest) {
+if (req.headers.get(ROLE_HEADER) !== "admin") {
+return NextResponse.json({ error: "Admin access is required to change the library folder." }, { status: 403 });
+}
 const body = await req.json().catch(() => null);
 const dir = body?.videoDir;
 if (!dir || typeof dir !== "string") {

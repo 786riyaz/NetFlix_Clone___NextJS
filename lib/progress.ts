@@ -43,11 +43,11 @@ ids.push(key.slice(POS_PREFIX.length));
 }
 return ids;
 }
-export type ViewMode = "browse" | "grid" | "list" | "manage";
+export type ViewMode = "browse" | "grid" | "list" | "folders";
 export function getViewMode(): ViewMode {
 if (typeof window === "undefined") return "browse";
 const v = window.localStorage.getItem("vault:view");
-return v === "grid" || v === "list" || v === "browse" || v === "manage" ? v : "browse";
+return v === "grid" || v === "list" || v === "browse" || v === "folders" ? v : "browse";
 }
 export function setViewMode(v: ViewMode) {
 if (typeof window === "undefined") return;
