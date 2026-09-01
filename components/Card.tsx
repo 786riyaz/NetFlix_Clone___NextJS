@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { VideoItem } from "@/lib/types";
 import { fmtDuration } from "@/lib/format";
 import { getSavedTime, isWatched } from "@/lib/progress";
+import OptimizeBadge from "./OptimizeBadge";
 export default function Card({
 video,
 onPlay,
@@ -93,6 +94,11 @@ imgLoaded ? "opacity-100" : "opacity-0"
 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
 <path d="M20 6 9 17l-5-5" />
 </svg>
+</div>
+)}
+{video.needsOptimize && (
+<div className="absolute top-1.5 left-1.5">
+<OptimizeBadge videoId={video.id} videoName={video.name} />
 </div>
 )}
 {progressPct > 1 && !watched && (

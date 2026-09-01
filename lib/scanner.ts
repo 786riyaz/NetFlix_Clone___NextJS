@@ -33,11 +33,18 @@ size: number;
 mtimeMs: number;
 duration: number;
 hasThumbnail: boolean;
-// Fast-start optimization state for mp4/m4v/mov files (see lib/faststart.ts).
-// undefined = not checked yet, false = doesn't need it or isn't applicable,
-// true = an optimized copy exists at optimizedDir/<id>.mp4 and should be
-// served instead of the original.
+// Fast-start optimization state for mp4/m4v/mov files (see lib/faststart.ts),
+// OR a full manual transcode (see lib/transcode.ts) for files with playback
+// issues at the source (VFR, HEVC, bloated bitrate). Either way: true means
+// an optimized copy exists at optimizedDir/<id>.mp4 and should be served
+// instead of the original. undefined = not checked yet.
 optimized?: boolean;
+codec?: string | null;
+width?: number | null;
+height?: number | null;
+bitRate?: number | null;
+vfr?: boolean;
+needsOptimize?: boolean;
 }
 interface CacheFile {
 entries: Record<string, CacheEntry>;
@@ -138,6 +145,27 @@ remuxQueueRunning = false;
 }
 }
 
+const metaBackfillInProgress = new Set<string>();
+function scheduleMetaBackfill(paths: LibraryPaths, id: string, absPath: string, cache: CacheFile) {
+if (cache.entries[id]?.needsOptimize !== undefined) return; // already probed
+if (metaBackfillInProgress.has(id)) return;
+metaBackfillInProgress.add(id);
+probeMeta(absPath)
+.then(async (meta) => {
+const fresh = await loadCache(paths);
+const entry = fresh.entries[id];
+if (entry) {
+entry.codec = meta.codec;
+entry.width = meta.width;
+entry.height = meta.height;
+entry.bitRate = meta.bitRate;
+entry.vfr = meta.vfr;
+entry.needsOptimize = needsOptimize(meta);
+await saveCache(paths, fresh);
+}
+})
+.finally(() => metaBackfillInProgress.delete(id));
+}
 function scheduleFastStartCheck(
 paths: LibraryPaths,
 id: string,
@@ -181,23 +209,79 @@ p.on("error", () => resolve(false));
 p.on("exit", (code) => resolve(code === 0));
 });
 }
-function probeDuration(absPath: string): Promise<number> {
+function probeMeta(absPath: string): Promise<{
+duration: number;
+codec: string | null;
+width: number | null;
+height: number | null;
+bitRate: number | null;
+vfr: boolean;
+}> {
 return new Promise((resolve) => {
 const args = [
 "-v", "error",
-"-show_entries", "format=duration",
-"-of", "default=noprint_wrappers=1:nokey=1",
+"-select_streams", "v:0",
+"-show_entries", "format=duration:stream=codec_name,width,height,bit_rate,r_frame_rate,avg_frame_rate",
+"-of", "json",
 absPath,
 ];
 const p = spawn(FFPROBE_BIN, args);
 let out = "";
 p.stdout.on("data", (d) => (out += d.toString()));
-p.on("error", () => resolve(0));
+p.on("error", () => resolve({ duration: 0, codec: null, width: null, height: null, bitRate: null, vfr: false }));
 p.on("exit", () => {
-const val = parseFloat(out.trim());
-resolve(Number.isFinite(val) ? val : 0);
+try {
+const parsed = JSON.parse(out);
+const duration = parseFloat(parsed?.format?.duration);
+const stream = parsed?.streams?.[0];
+const codec: string | null = stream?.codec_name ?? null;
+const width: number | null = stream?.width ?? null;
+const height: number | null = stream?.height ?? null;
+const bitRate: number | null = stream?.bit_rate ? parseInt(stream.bit_rate, 10) : null;
+// Format Factory (and similar tools) frequently produce variable
+// frame rate output even from a constant-rate source. r_frame_rate
+// (the stream's stated rate) diverging from avg_frame_rate (the
+// actual average) is the standard signal for VFR — and VFR is one
+// of the most common causes of stutter that shows up in *every*
+// player, not just ours, because the decoder keeps mistiming frames.
+const rFps = parseFrameRate(stream?.r_frame_rate);
+const avgFps = parseFrameRate(stream?.avg_frame_rate);
+const vfr = rFps !== null && avgFps !== null && Math.abs(rFps - avgFps) > 0.5;
+resolve({
+duration: Number.isFinite(duration) ? duration : 0,
+codec,
+width,
+height,
+bitRate,
+vfr,
+});
+} catch {
+resolve({ duration: 0, codec: null, width: null, height: null, bitRate: null, vfr: false });
+}
 });
 });
+}
+function parseFrameRate(s: string | undefined): number | null {
+if (!s) return null;
+const [num, den] = s.split("/").map(Number);
+if (!den) return num || null;
+return num / den;
+}
+// Heuristic for "this file will probably stutter on playback, in any
+// player" — used to surface an opt-in Optimize button rather than a hard
+// rule, since it's a judgment call, not a certainty.
+function needsOptimize(meta: { codec: string | null; width: number | null; height: number | null; bitRate: number | null; vfr: boolean }): boolean {
+if (meta.vfr) return true;
+if (meta.codec === "hevc" || meta.codec === "h265") return true;
+if (meta.bitRate && meta.width && meta.height) {
+const megapixels = (meta.width * meta.height) / 1_000_000;
+const mbps = meta.bitRate / 1_000_000;
+// Rough ceiling for a "sane" H.264-family bitrate per megapixel;
+// well above this usually means a bloated re-encode, which is heavier
+// to decode than the resolution warrants.
+if (megapixels > 0 && mbps / megapixels > 12) return true;
+}
+return false;
 }
 function generateThumbnail(
 absPath: string,
@@ -296,6 +380,7 @@ items.push(toVideoItem(existing, f.folder, f.relativePath));
 if (cache.ffmpegAvailable) {
 const ext = path.extname(f.relativePath).slice(1).toLowerCase();
 scheduleFastStartCheck(paths, id, f.abs, ext, cache);
+scheduleMetaBackfill(paths, id, f.abs, cache);
 }
 } else {
 pending.push({ ...f, id, stat });
@@ -303,17 +388,25 @@ pending.push({ ...f, id, stat });
 }
 if (pending.length) {
 const processed = await runWithConcurrency(pending, 3, async (f) => {
-const duration = cache.ffmpegAvailable ? await probeDuration(f.abs) : 0;
+const meta = cache.ffmpegAvailable
+? await probeMeta(f.abs)
+: { duration: 0, codec: null, width: null, height: null, bitRate: null, vfr: false };
 const hasThumbnail = cache.ffmpegAvailable
-? await generateThumbnail(f.abs, f.id, duration, paths.thumbDir)
+? await generateThumbnail(f.abs, f.id, meta.duration, paths.thumbDir)
 : false;
 const entry: CacheEntry = {
 id: f.id,
 relativePath: f.relativePath,
 size: f.stat.size,
 mtimeMs: f.stat.mtimeMs,
-duration,
+duration: meta.duration,
 hasThumbnail,
+codec: meta.codec,
+width: meta.width,
+height: meta.height,
+bitRate: meta.bitRate,
+vfr: meta.vfr,
+needsOptimize: needsOptimize(meta),
 };
 cache.entries[f.id] = entry;
 if (cache.ffmpegAvailable) {
@@ -353,6 +446,8 @@ mtimeMs: entry.mtimeMs,
 duration: entry.duration,
 ext,
 hasThumbnail: entry.hasThumbnail,
+needsOptimize: !!entry.needsOptimize && !entry.optimized,
+optimized: !!entry.optimized,
 };
 }
 export async function isFfmpegAvailable(): Promise<boolean> {
@@ -386,4 +481,38 @@ export async function resolveThumbnailPath(id: string): Promise<string | null> {
 const paths = await getPaths();
 if (!paths) return null;
 return path.join(paths.thumbDir, `${id}.jpg`);
+}
+
+/** Everything the manual-optimize API route needs to kick off a transcode
+ * job: the original (never the already-optimized) file path, its known
+ * duration for progress %, and where the result should be written. */
+export async function getOptimizeTarget(
+id: string
+): Promise<{ absPath: string; outPath: string; duration: number; alreadyOptimized: boolean } | null> {
+const paths = await getPaths();
+if (!paths) return null;
+const cache = await loadCache(paths);
+const entry = cache.entries[id];
+if (!entry) return null;
+const absPath = path.join(paths.root, entry.relativePath);
+if (!absPath.startsWith(paths.root)) return null;
+return {
+absPath,
+outPath: path.join(paths.optimizedDir, `${id}.mp4`),
+duration: entry.duration,
+alreadyOptimized: !!entry.optimized,
+};
+}
+
+/** Marks a video as served from its optimized copy from now on (or reverts
+ * the flag on failure so the original keeps being served). */
+export async function markOptimized(id: string, ok: boolean): Promise<void> {
+const paths = await getPaths();
+if (!paths) return;
+const cache = await loadCache(paths);
+if (cache.entries[id]) {
+cache.entries[id].optimized = ok;
+if (ok) cache.entries[id].needsOptimize = false;
+await saveCache(paths, cache);
+}
 }

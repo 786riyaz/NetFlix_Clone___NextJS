@@ -8,6 +8,12 @@ mtimeMs: number;
 duration: number; // seconds, 0 if unknown
 ext: string;
 hasThumbnail: boolean;
+// Heuristic: true if this file (codec, variable frame rate, or bloated
+// bitrate) is likely to stutter in any player, not just this app.
+// Surfaced as an opt-in "Optimize" action rather than run automatically,
+// since a full re-encode is expensive.
+needsOptimize: boolean;
+optimized: boolean; // an optimized copy exists and is being served instead of the original
 }
 export interface LibraryResponse {
 videos: VideoItem[];
