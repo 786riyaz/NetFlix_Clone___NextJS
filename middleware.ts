@@ -1,38 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
+import { AUTH_COOKIE, expectedToken, isConfigured } from "@/lib/auth";
 
-// Optional access gate. If APP_PASSWORD is unset, the app behaves exactly
-// as before (open, no login) — this only kicks in once you set it, which
-// you should always do before making the port public over a tunnel, since
-// this app can browse and stream any folder on the host machine.
-const COOKIE_NAME = "netflix_auth";
+// Login is mandatory — there is no bypass. Every route (pages and API)
+// requires a valid session cookie that matches USER_NAME/USER_PASSWORD
+// from .env. If those aren't set, everything stays locked and the login
+// page shows a setup notice instead of quietly letting requests through.
+export async function middleware(req: NextRequest) {
+const { pathname } = req.nextUrl;
 
-export function middleware(req: NextRequest) {
-  const password = process.env.APP_PASSWORD;
-  if (!password) return NextResponse.next();
+if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) {
+return NextResponse.next();
+}
+if (pathname === "/login" || pathname === "/api/auth") {
+return NextResponse.next();
+}
 
-  const { pathname } = req.nextUrl;
-  if (pathname === "/login" || pathname === "/api/auth") {
-    return NextResponse.next();
-  }
-  // Let Next's own internals through so the login page itself can render.
-  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) {
-    return NextResponse.next();
-  }
+const token = await expectedToken();
+const cookie = req.cookies.get(AUTH_COOKIE)?.value;
 
-  const cookie = req.cookies.get(COOKIE_NAME)?.value;
-  if (cookie === password) {
-    return NextResponse.next();
-  }
+if (token && cookie === token) {
+return NextResponse.next();
+}
 
-  if (pathname.startsWith("/api")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+if (pathname.startsWith("/api")) {
+return NextResponse.json(
+{ error: isConfigured() ? "Unauthorized" : "Login not configured — set USER_NAME and USER_PASSWORD in .env" },
+{ status: 401 }
+);
+}
 
-  const loginUrl = new URL("/login", req.url);
-  loginUrl.searchParams.set("next", pathname);
-  return NextResponse.redirect(loginUrl);
+const loginUrl = new URL("/login", req.url);
+loginUrl.searchParams.set("next", pathname);
+return NextResponse.redirect(loginUrl);
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image).*)"],
+matcher: ["/((?!_next/static|_next/image).*)"],
 };

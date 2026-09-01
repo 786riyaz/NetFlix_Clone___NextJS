@@ -110,6 +110,16 @@ className="shrink-0 text-sm px-2.5 sm:px-3 py-1.5 rounded-md bg-white/10 hover:b
 <RescanIcon spinning={rescanning} />
 <span className="hidden md:inline">{rescanning ? "Scanning…" : "Rescan"}</span>
 </button>
+<button
+onClick={async () => {
+await fetch("/api/auth", { method: "DELETE" });
+window.location.href = "/login";
+}}
+title="Sign out"
+className="shrink-0 w-8 h-8 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/20 focus-ring"
+>
+<LogoutIcon />
+</button>
 </div>
 </header>
 );
@@ -177,6 +187,15 @@ return (
 <rect x="14" y="3" width="7" height="7" rx="1" />
 <rect x="3" y="14" width="7" height="7" rx="1" />
 <rect x="14" y="14" width="7" height="7" rx="1" />
+</svg>
+);
+}
+function LogoutIcon() {
+return (
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+<path d="M16 17l5-5-5-5" />
+<path d="M21 12H9" />
 </svg>
 );
 }

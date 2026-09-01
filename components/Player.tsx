@@ -34,6 +34,7 @@ const [loading, setLoading] = useState(true);
 // the video itself, mirroring the familiar YouTube/Netflix feedback.
 const [clickFeedback, setClickFeedback] = useState<"play" | "pause" | null>(null);
 const clickFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+const [showShortcuts, setShowShortcuts] = useState(false);
 const [volume, setVolumeState] = useState(1);
 // Videos always start muted — the person clicks the volume/unmute button
 // to turn sound on. This also keeps autoplay reliable across browsers,
@@ -170,6 +171,12 @@ function playNext() {
 if (upNext.length) onPlayVideo(upNext[0]);
 else onClose();
 }
+function seekToPercent(pct: number) {
+const v = videoRef.current;
+if (!v || !v.duration) return;
+v.currentTime = (pct / 100) * v.duration;
+resetHideTimer();
+}
 useEffect(() => {
 function onKey(e: KeyboardEvent) {
 if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -191,15 +198,42 @@ break;
 case "m":
 toggleMute();
 break;
+case "Home": {
+const v = videoRef.current;
+if (v) v.currentTime = 0;
+resetHideTimer();
+break;
+}
+case "End": {
+const v = videoRef.current;
+if (v && v.duration) v.currentTime = Math.max(0, v.duration - 0.5);
+resetHideTimer();
+break;
+}
+case "0":
+case "1":
+case "2":
+case "3":
+case "4":
+case "5":
+case "6":
+case "7":
+case "8":
+case "9":
+// Standard YouTube-style shortcut: number key N jumps to N*10% of
+// the video (0 = start, 9 = 90%).
+seekToPercent(Number(e.key) * 10);
+break;
 case "Escape":
-onClose();
+if (showShortcuts) setShowShortcuts(false);
+else onClose();
 break;
 }
 }
 window.addEventListener("keydown", onKey);
 return () => window.removeEventListener("keydown", onKey);
 // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
+}, [showShortcuts]);
 const pct = duration ? (current / duration) * 100 : 0;
 return (
 <div
@@ -270,12 +304,42 @@ showControls ? "opacity-100" : "opacity-0 pointer-events-none"
 <div className="text-lg sm:text-xl font-semibold truncate">{video.name}</div>
 <div className="text-xs sm:text-sm text-muted truncate">{video.folder || "Library root"}</div>
 </div>
-<button onClick={onClose} className="shrink-0 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring" aria-label="Close player">
+<div className="flex items-center gap-2 shrink-0">
+<button
+onClick={() => setShowShortcuts((s) => !s)}
+className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring"
+aria-label="Keyboard shortcuts"
+title="Keyboard shortcuts"
+>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+<circle cx="12" cy="12" r="10" />
+<path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 .9-1 1.7" />
+<path d="M12 17h.01" />
+</svg>
+</button>
+<button onClick={onClose} className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring" aria-label="Close player">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
 <path d="M18 6 6 18M6 6l12 12" />
 </svg>
 </button>
 </div>
+</div>
+{showShortcuts && (
+<div
+onClick={(e) => e.stopPropagation()}
+className="absolute top-16 right-4 sm:right-6 z-10 w-64 rounded-lg bg-black/90 border border-white/10 p-4 text-xs space-y-1.5"
+>
+<div className="text-sm font-semibold mb-2">Keyboard shortcuts</div>
+<Shortcut keys="Space / K" desc="Play / pause" />
+<Shortcut keys="← / →" desc="Back / forward 10s" />
+<Shortcut keys="Home" desc="Jump to start" />
+<Shortcut keys="End" desc="Jump to end" />
+<Shortcut keys="0–9" desc="Jump to 0%–90%" />
+<Shortcut keys="M" desc="Mute / unmute" />
+<Shortcut keys="F" desc="Fullscreen" />
+<Shortcut keys="Esc" desc="Close player" />
+</div>
+)}
 {/* Center play/pause tap target */}
 {!playing && showControls && (
 <button
@@ -391,6 +455,14 @@ Reset
 Up next: <span className="text-white">{upNext[0].name}</span>
 </div>
 )}
+</div>
+);
+}
+function Shortcut({ keys, desc }: { keys: string; desc: string }) {
+return (
+<div className="flex items-center justify-between gap-3">
+<span className="text-muted">{desc}</span>
+<kbd className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[11px] shrink-0">{keys}</kbd>
 </div>
 );
 }
