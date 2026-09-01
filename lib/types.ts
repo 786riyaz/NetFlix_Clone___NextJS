@@ -22,5 +22,4 @@ generatedAt: number;
 ffmpegAvailable: boolean;
 videoDir: string | null; // the folder currently configured, if any
 configured: boolean; // false on first run, before a folder has been chosen
-superManagement: boolean; // whether delete/rename is enabled server-side
 }

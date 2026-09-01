@@ -4,19 +4,12 @@ import type { VideoItem } from "@/lib/types";
 import { fmtDuration, fmtSize, fmtDate } from "@/lib/format";
 import { getSavedTime, isWatched } from "@/lib/progress";
 import OptimizeBadge from "./OptimizeBadge";
-import ManageControls from "./ManageControls";
 export default function ListItem({
 video,
 onPlay,
-superManagement = false,
-onRenamed,
-onDeleted,
 }: {
 video: VideoItem;
 onPlay: (v: VideoItem) => void;
-superManagement?: boolean;
-onRenamed?: (v: VideoItem) => void;
-onDeleted?: (id: string) => void;
 }) {
 const [progressPct, setProgressPct] = useState(0);
 const [watched, setWatched] = useState(false);
@@ -27,20 +20,12 @@ setProgressPct(video.duration ? Math.min(100, (t / video.duration) * 100) : 0);
 setWatched(isWatched(video.id));
 }, [video.id, video.duration]);
 return (
-<div
-role="button"
-tabIndex={0}
+<button
 onClick={() => onPlay(video)}
-onKeyDown={(e) => {
-if (e.key === "Enter" || e.key === " ") {
-e.preventDefault();
-onPlay(video);
-}
-}}
-className="group w-full flex items-center gap-3 px-2 sm:px-3 py-2 rounded-md hover:bg-white/5 active:bg-white/10 transition-colors text-left focus-ring cursor-pointer"
+className="group w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-white/5 transition-colors text-left focus-ring"
 title={video.name}
 >
-<div className="relative w-[96px] xs:w-[120px] sm:w-[150px] aspect-video shrink-0 rounded-md overflow-hidden bg-gradient-to-br from-[#232326] to-[#0e0e10]">
+<div className="relative w-[120px] sm:w-[150px] aspect-video shrink-0 rounded-md overflow-hidden bg-gradient-to-br from-[#232326] to-[#0e0e10]">
 {video.hasThumbnail ? (
 <>
 {!imgLoaded && <div className="absolute inset-0 animate-shimmer" />}
@@ -63,7 +48,7 @@ imgLoaded ? "opacity-100" : "opacity-0"
 </svg>
 </div>
 )}
-<div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 sm:group-hover:opacity-100 transition-opacity">
+<div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
 <div className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center">
 <svg width="13" height="13" viewBox="0 0 24 24" fill="#111">
 <path d="M8 5v14l11-7z" />
@@ -78,7 +63,7 @@ imgLoaded ? "opacity-100" : "opacity-0"
 </div>
 <div className="min-w-0 flex-1">
 <div className="flex items-center gap-2">
-<span className="text-[13px] sm:text-sm font-medium truncate text-white/90">{video.name}</span>
+<span className="text-sm font-medium truncate text-white/90">{video.name}</span>
 {video.needsOptimize && <OptimizeBadge videoId={video.id} videoName={video.name} />}
 {watched && (
 <span className="shrink-0 w-4 h-4 rounded-full bg-accent flex items-center justify-center">
@@ -89,20 +74,12 @@ imgLoaded ? "opacity-100" : "opacity-0"
 )}
 </div>
 <div className="text-xs text-muted truncate mt-0.5">{video.folder || "Library root"}</div>
-<div className="flex sm:hidden items-center gap-2 text-[11px] text-muted mt-1 tabular-nums">
-<span>{fmtDuration(video.duration)}</span>
-<span>•</span>
-<span>{fmtSize(video.size)}</span>
-</div>
 </div>
 <div className="hidden sm:flex items-center gap-4 text-xs text-muted shrink-0 tabular-nums">
 <span className="w-14 text-right">{fmtDuration(video.duration)}</span>
 <span className="w-16 text-right">{fmtSize(video.size)}</span>
 <span className="w-20 text-right">{fmtDate(video.mtimeMs)}</span>
 </div>
-{superManagement && onRenamed && onDeleted && (
-<ManageControls video={video} onRenamed={onRenamed} onDeleted={onDeleted} />
-)}
-</div>
+</button>
 );
 }

@@ -7,17 +7,11 @@ title,
 videos,
 onPlay,
 emptyHint,
-superManagement = false,
-onRenamed,
-onDeleted,
 }: {
 title: string;
 videos: VideoItem[];
 onPlay: (v: VideoItem) => void;
 emptyHint?: string;
-superManagement?: boolean;
-onRenamed?: (v: VideoItem) => void;
-onDeleted?: (id: string) => void;
 }) {
 const scrollerRef = useRef<HTMLDivElement>(null);
 function scrollBy(delta: number) {
@@ -53,9 +47,7 @@ className="flex gap-2.5 overflow-x-auto no-scrollbar px-4 sm:px-10 py-1 snap-x s
 {videos.length === 0 && emptyHint ? (
 <div className="text-muted text-sm py-8">{emptyHint}</div>
 ) : (
-videos.map((v) => (
-<Card key={v.id} video={v} onPlay={onPlay} superManagement={superManagement} onRenamed={onRenamed} onDeleted={onDeleted} />
-))
+videos.map((v) => <Card key={v.id} video={v} onPlay={onPlay} />)
 )}
 </div>
 </div>

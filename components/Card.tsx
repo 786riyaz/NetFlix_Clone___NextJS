@@ -4,21 +4,14 @@ import type { VideoItem } from "@/lib/types";
 import { fmtDuration } from "@/lib/format";
 import { getSavedTime, isWatched } from "@/lib/progress";
 import OptimizeBadge from "./OptimizeBadge";
-import ManageControls from "./ManageControls";
 export default function Card({
 video,
 onPlay,
 layout = "row",
-superManagement = false,
-onRenamed,
-onDeleted,
 }: {
 video: VideoItem;
 onPlay: (v: VideoItem) => void;
 layout?: "row" | "grid";
-superManagement?: boolean;
-onRenamed?: (v: VideoItem) => void;
-onDeleted?: (id: string) => void;
 }) {
 const [hovering, setHovering] = useState(false);
 const [previewOn, setPreviewOn] = useState(false);
@@ -47,22 +40,14 @@ videoRef.current.src = "";
 }
 }
 return (
-<div
-role="button"
-tabIndex={0}
+<button
 onClick={() => onPlay(video)}
-onKeyDown={(e) => {
-if (e.key === "Enter" || e.key === " ") {
-e.preventDefault();
-onPlay(video);
-}
-}}
 onMouseEnter={handleEnter}
 onMouseLeave={handleLeave}
 className={`group relative ${
-layout === "row" ? "w-[42vw] xs:w-[220px] sm:w-[240px] shrink-0 snap-start" : "w-full"
-} rounded-lg overflow-hidden bg-card text-left transition-all duration-200 ease-out focus-ring cursor-pointer ${
-hovering ? "sm:scale-[1.06] sm:shadow-card sm:z-10" : "scale-100 z-0"
+layout === "row" ? "w-[240px] shrink-0 snap-start" : "w-full"
+} rounded-lg overflow-hidden bg-card text-left transition-all duration-200 ease-out focus-ring ${
+hovering ? "scale-[1.06] shadow-card z-10" : "scale-100 z-0"
 }`}
 style={{ transformOrigin: "center" }}
 title={video.name}
@@ -116,11 +101,6 @@ imgLoaded ? "opacity-100" : "opacity-0"
 <OptimizeBadge videoId={video.id} videoName={video.name} />
 </div>
 )}
-{superManagement && onRenamed && onDeleted && (
-<div className="absolute bottom-1.5 left-1.5">
-<ManageControls video={video} onRenamed={onRenamed} onDeleted={onDeleted} />
-</div>
-)}
 {progressPct > 1 && !watched && (
 <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
 <div className="h-full bg-accent" style={{ width: `${progressPct}%` }} />
@@ -142,6 +122,6 @@ hovering ? "opacity-100" : "opacity-0"
 <div className="text-[13px] font-medium truncate text-white/90">{video.name}</div>
 <div className="text-[11px] text-muted truncate">{video.folder || "Library root"}</div>
 </div>
-</div>
+</button>
 );
 }

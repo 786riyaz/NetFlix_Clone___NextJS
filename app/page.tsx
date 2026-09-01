@@ -12,6 +12,7 @@ import FolderPicker from "@/components/FolderPicker";
 import SkeletonGrid from "@/components/SkeletonGrid";
 import BackToTop from "@/components/BackToTop";
 import ToastContainer from "@/components/ToastContainer";
+import ManageView from "@/components/ManageView";
 export default function HomePage() {
 const [videos, setVideos] = useState<VideoItem[]>([]);
 const [folders, setFolders] = useState<string[]>([]);
@@ -28,20 +29,32 @@ const [folder, setFolder] = useState("");
 const [playing, setPlaying] = useState<VideoItem | null>(null);
 const [continueIds, setContinueIds] = useState<string[]>([]);
 const [view, setView] = useState<ViewMode>("browse");
-const [superManagement, setSuperManagement] = useState(false);
+const [isAdmin, setIsAdmin] = useState(false);
 const searchInputRef = useRef<HTMLInputElement>(null);
 const isFirstLoad = useRef(true);
-
 // Restore the last-used view mode once we're on the client (avoids an
 // SSR/client mismatch since it lives in localStorage).
 useEffect(() => {
 setView(getViewMode());
 }, []);
+// Who's signed in — the Manage tab (folder-tree rename/delete/move/
+// reorder tools) only exists at all for the admin (Super Admin) account.
+useEffect(() => {
+fetch("/api/me")
+.then((r) => r.json())
+.then((d) => setIsAdmin(d.role === "admin"))
+.catch(() => setIsAdmin(false));
+}, []);
+// A non-admin session should never land on "manage" (e.g. a saved
+// preference from a previous admin login on a shared browser).
+useEffect(() => {
+if (view === "manage" && !isAdmin) changeView("browse");
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [view, isAdmin]);
 function changeView(v: ViewMode) {
 setView(v);
 setViewMode(v);
 }
-
 async function load(rescan = false) {
 if (rescan) setRescanning(true);
 else setLoading(true);
@@ -55,7 +68,6 @@ setFolders(data.folders);
 setFfmpegAvailable(data.ffmpegAvailable);
 setVideoDirState(data.videoDir);
 setConfigured(data.configured);
-setSuperManagement(!!data.superManagement);
 if (!data.configured) setShowPicker(true);
 if (rescan && !isFirstLoad.current) {
 pushToast(`Library rescanned — ${data.videos.length} video${data.videos.length === 1 ? "" : "s"} found.`, "success");
@@ -77,7 +89,6 @@ setContinueIds(getAllProgressIds());
 useEffect(() => {
 if (!playing) setContinueIds(getAllProgressIds());
 }, [playing]);
-
 // Keyboard shortcuts: "/" focuses search (unless already typing
 // somewhere), Escape closes the player/folder picker or clears an
 // active search — the two things people reach for most in a library
@@ -99,7 +110,6 @@ else if (isTyping && search) setSearch("");
 window.addEventListener("keydown", onKeyDown);
 return () => window.removeEventListener("keydown", onKeyDown);
 }, [playing, showPicker, configured, search]);
-
 async function handleFolderSelected(path: string) {
 const res = await fetch("/api/config", {
 method: "POST",
@@ -111,13 +121,6 @@ if (!res.ok) throw new Error(data.error || "Could not use that folder");
 setShowPicker(false);
 pushToast("Library folder updated — indexing…", "info");
 await load(true);
-}
-function handleRenamed(updated: VideoItem) {
-setVideos((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
-}
-function handleDeleted(id: string) {
-setVideos((prev) => prev.filter((v) => v.id !== id));
-setContinueIds((prev) => prev.filter((i) => i !== id));
 }
 const filtered = useMemo(() => {
 let list = videos;
@@ -165,10 +168,11 @@ const siblings = videos.filter((v) => v.folder === playing.folder && v.id !== pl
 return siblings.sort((a, b) => a.name.localeCompare(b.name));
 }, [playing, videos]);
 const isFiltering = search.trim().length > 0 || folder.length > 0;
+const isManageView = view === "manage" && isAdmin;
 // Browse mode keeps the Netflix-style hero + rows layout. Grid/List modes
 // are for when you want to scan the whole (possibly 300+ video) library
 // at once — hero and duplicate folder rows would just be noise there.
-const showBrowseLayout = view === "browse" && !isFiltering;
+const showBrowseLayout = view === "browse" && !isFiltering && !isManageView;
 return (
 <main className="min-h-screen pb-16">
 <Header
@@ -185,6 +189,7 @@ onChangeFolder={() => setShowPicker(true)}
 view={view}
 onView={changeView}
 searchInputRef={searchInputRef}
+isAdmin={isAdmin}
 />
 <ToastContainer />
 {showPicker && (
@@ -195,9 +200,13 @@ onCancel={() => setShowPicker(false)}
 onSelect={handleFolderSelected}
 />
 )}
+{isManageView ? (
+<ManageView isAdmin={isAdmin} onPlay={setPlaying} />
+) : (
+<>
 {loading && <SkeletonGrid />}
 {error && (
-<div className="pt-32 px-10 text-accent">
+<div className="pt-32 px-4 sm:px-10 text-accent">
 {error}. Make sure the server can read the configured folder, then hit Rescan.
 </div>
 )}
@@ -220,7 +229,7 @@ Choose a different folder
 <h1 className="text-2xl font-bold mb-2">Welcome to Vault</h1>
 <p className="text-muted text-sm leading-relaxed">
 Pick the folder that holds your videos to get started. You can change it anytime
-from the <span className="text-white">Folder</span> button in the header.
+from the header menu.
 </p>
 </div>
 )}
@@ -234,7 +243,7 @@ ffmpeg not found on the server — durations and thumbnails are unavailable. Pla
 </div>
 )}
 {showBrowseLayout && hero && (
-<section className="relative h-[46vh] sm:h-[62vh] w-full mb-10 overflow-hidden">
+<section className="relative h-[42vh] sm:h-[62vh] w-full mb-8 sm:mb-10 overflow-hidden">
 {hero.hasThumbnail ? (
 // eslint-disable-next-line @next/next/no-img-element
 <img
@@ -247,19 +256,19 @@ className="absolute inset-0 w-full h-full object-cover opacity-60"
 )}
 <div className="absolute inset-0 bg-gradient-to-t from-bg via-bg/40 to-transparent" />
 <div className="absolute inset-0 bg-gradient-to-r from-bg/90 via-bg/10 to-transparent" />
-<div className="relative h-full flex flex-col justify-end px-4 sm:px-10 pb-10 max-w-xl">
+<div className="relative h-full flex flex-col justify-end px-4 sm:px-10 pb-8 sm:pb-10 max-w-xl">
 <div className="text-xs uppercase tracking-widest text-accent font-semibold mb-2">
 Recently added
 </div>
-<h1 className="text-3xl sm:text-5xl font-extrabold mb-3 leading-tight">{hero.name}</h1>
-<div className="text-sm text-muted mb-5">
+<h1 className="text-2xl sm:text-5xl font-extrabold mb-3 leading-tight line-clamp-2">{hero.name}</h1>
+<div className="text-xs sm:text-sm text-muted mb-4 sm:mb-5">
 {fmtDuration(hero.duration)} • {fmtSize(hero.size)} • Added {fmtDate(hero.mtimeMs)}
 {hero.folder ? ` • ${hero.folder}` : ""}
 </div>
 <div className="flex gap-3">
 <button
 onClick={() => setPlaying(hero)}
-className="flex items-center gap-2 bg-white text-black font-semibold px-5 py-2.5 rounded-md hover:bg-white/85 focus-ring"
+className="flex items-center gap-2 bg-white text-black font-semibold px-4 sm:px-5 py-2 sm:py-2.5 rounded-md hover:bg-white/85 focus-ring text-sm sm:text-base"
 >
 <svg width="16" height="16" viewBox="0 0 24 24" fill="#111">
 <path d="M8 5v14l11-7z" />
@@ -272,10 +281,10 @@ Play
 )}
 {showBrowseLayout && (
 <>
-<Row title="Continue Watching" videos={continueWatching} onPlay={setPlaying} emptyHint="Nothing in progress — start watching something below." superManagement={superManagement} onRenamed={handleRenamed} onDeleted={handleDeleted} />
-<Row title="Recently Added" videos={recentlyAdded} onPlay={setPlaying} superManagement={superManagement} onRenamed={handleRenamed} onDeleted={handleDeleted} />
+<Row title="Continue Watching" videos={continueWatching} onPlay={setPlaying} emptyHint="Nothing in progress — start watching something below." />
+<Row title="Recently Added" videos={recentlyAdded} onPlay={setPlaying} />
 {folderRows.map((r) => (
-<Row key={r.name} title={r.name} videos={r.items} onPlay={setPlaying} superManagement={superManagement} onRenamed={handleRenamed} onDeleted={handleDeleted} />
+<Row key={r.name} title={r.name} videos={r.items} onPlay={setPlaying} />
 ))}
 </>
 )}
@@ -286,15 +295,10 @@ Play
 <h2 className="text-[17px] sm:text-[19px] font-semibold mb-3 px-4 sm:px-10">
 {isFiltering ? `Results (${filtered.length})` : "All Videos"}
 </h2>
-<LazyGrid
-videos={filtered}
-onPlay={setPlaying}
-mode={view === "list" ? "list" : "grid"}
-superManagement={superManagement}
-onRenamed={handleRenamed}
-onDeleted={handleDeleted}
-/>
+<LazyGrid videos={filtered} onPlay={setPlaying} mode={view === "list" ? "list" : "grid"} />
 </section>
+</>
+)}
 </>
 )}
 {playing && (
@@ -303,9 +307,6 @@ video={playing}
 upNext={upNext}
 onClose={() => setPlaying(null)}
 onPlayVideo={(v) => setPlaying(v)}
-superManagement={superManagement}
-onRenamed={handleRenamed}
-onDeleted={handleDeleted}
 />
 )}
 <BackToTop />

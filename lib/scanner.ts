@@ -49,12 +49,6 @@ needsOptimize?: boolean;
 interface CacheFile {
 entries: Record<string, CacheEntry>;
 ffmpegAvailable: boolean | null;
-// Maps relativePath -> id. Lets a rename update just the path on an
-// existing entry (keeping the same id) instead of the file appearing as
-// a brand new video — which would otherwise orphan watch progress,
-// watched status, and any optimize work already done, since those all
-// key off id in localStorage/the cache.
-pathIndex?: Record<string, string>;
 }
 interface LibraryPaths {
 root: string;
@@ -83,9 +77,8 @@ optimizedDir: path.join(dir, "optimized"),
 cacheFile: path.join(dir, "library.json"),
 };
 }
-function makeId(): string {
-// No longer derived from the path — see the pathIndex comment above.
-return crypto.randomBytes(16).toString("hex");
+function makeId(relativePath: string): string {
+return crypto.createHash("md5").update(relativePath).digest("hex");
 }
 async function ensureDirs(thumbDir: string, optimizedDir?: string) {
 await fs.mkdir(thumbDir, { recursive: true });
@@ -97,16 +90,7 @@ try {
 const raw = await fs.readFile(paths.cacheFile, "utf-8");
 memCache = JSON.parse(raw);
 } catch {
-memCache = { entries: {}, ffmpegAvailable: null, pathIndex: {} };
-}
-// Migration for caches saved before pathIndex existed: rebuild it from
-// the entries that are already there. Ids themselves don't change, so
-// existing thumbnails/optimized copies/watch-progress all stay valid.
-if (!memCache!.pathIndex) {
-memCache!.pathIndex = {};
-for (const entry of Object.values(memCache!.entries)) {
-memCache!.pathIndex[entry.relativePath] = entry.id;
-}
+memCache = { entries: {}, ffmpegAvailable: null };
 }
 memCacheRoot = paths.root;
 return memCache!;
@@ -130,7 +114,6 @@ scanInFlight = null;
 const remuxInProgress = new Set<string>();
 let remuxQueueRunning = false;
 const remuxQueue: { paths: LibraryPaths; id: string; absPath: string }[] = [];
-
 async function processRemuxQueue() {
 if (remuxQueueRunning) return;
 remuxQueueRunning = true;
@@ -160,7 +143,6 @@ remuxInProgress.delete(id);
 remuxQueueRunning = false;
 }
 }
-
 const metaBackfillInProgress = new Set<string>();
 function scheduleMetaBackfill(paths: LibraryPaths, id: string, absPath: string, cache: CacheFile) {
 if (cache.entries[id]?.needsOptimize !== undefined) return; // already probed
@@ -386,11 +368,7 @@ const items: VideoItem[] = [];
 const pending: { relativePath: string; abs: string; folder: string; id: string; stat: import("fs").Stats }[] = [];
 for (const { f, stat } of statResults) {
 if (!stat) continue;
-// Reuse the existing id for this path if we've seen it before (keeps
-// watch progress / optimize state alive across rescans); only a
-// genuinely new path gets a freshly generated one.
-const id = cache.pathIndex![f.relativePath] || makeId();
-cache.pathIndex![f.relativePath] = id;
+const id = makeId(f.relativePath);
 seenIds.add(id);
 const existing = cache.entries[id];
 const unchanged =
@@ -444,13 +422,6 @@ delete cache.entries[id];
 fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
 fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
 }
-}
-// Rebuild pathIndex fresh from the final entries — self-healing against
-// any drift (e.g. a manual rename/delete between scans) rather than
-// trying to patch it incrementally.
-cache.pathIndex = {};
-for (const entry of Object.values(cache.entries)) {
-cache.pathIndex[entry.relativePath] = entry.id;
 }
 await saveCache(paths, cache);
 return items.sort((a, b) => a.name.localeCompare(b.name));
@@ -509,10 +480,9 @@ const paths = await getPaths();
 if (!paths) return null;
 return path.join(paths.thumbDir, `${id}.jpg`);
 }
-
 /** Everything the manual-optimize API route needs to kick off a transcode
- * job: the original (never the already-optimized) file path, its known
- * duration for progress %, and where the result should be written. */
+* job: the original (never the already-optimized) file path, its known
+* duration for progress %, and where the result should be written. */
 export async function getOptimizeTarget(
 id: string
 ): Promise<{ absPath: string; outPath: string; duration: number; alreadyOptimized: boolean } | null> {
@@ -530,9 +500,8 @@ duration: entry.duration,
 alreadyOptimized: !!entry.optimized,
 };
 }
-
 /** Marks a video as served from its optimized copy from now on (or reverts
- * the flag on failure so the original keeps being served). */
+* the flag on failure so the original keeps being served). */
 export async function markOptimized(id: string, ok: boolean): Promise<void> {
 const paths = await getPaths();
 if (!paths) return;
@@ -542,70 +511,4 @@ cache.entries[id].optimized = ok;
 if (ok) cache.entries[id].needsOptimize = false;
 await saveCache(paths, cache);
 }
-}
-
-const INVALID_FILENAME_CHARS = /[/\\?%*:|"<>\x00-\x1f]/g;
-
-/** Renames a video's file on disk. Deliberately scoped to changing just
- * the filename within its current folder (no moving between folders) —
- * that covers the actual use case ("this file is misnamed") without the
- * larger surface area of arbitrary moves. The id is preserved, so watch
- * progress, watched status, and any optimize work stay intact. */
-export async function renameVideo(id: string, newName: string): Promise<VideoItem> {
-const paths = await getPaths();
-if (!paths) throw new Error("No library configured");
-const cache = await loadCache(paths);
-const entry = cache.entries[id];
-if (!entry) throw new Error("Video not found");
-
-const cleaned = newName.trim().replace(INVALID_FILENAME_CHARS, "").slice(0, 255);
-if (!cleaned) throw new Error("That name isn't valid");
-
-const oldAbsPath = path.join(paths.root, entry.relativePath);
-const dir = path.dirname(entry.relativePath);
-const originalExt = path.extname(entry.relativePath);
-// If the new name doesn't include a recognized video extension, keep the
-// original one — otherwise the file would silently drop out of the
-// library on the next scan.
-const hasKnownExt = VIDEO_EXTENSIONS.has(path.extname(cleaned).slice(1).toLowerCase());
-const finalName = hasKnownExt ? cleaned : `${cleaned}${originalExt}`;
-const newRelativePath = dir === "." ? finalName : `${dir}/${finalName}`;
-const newAbsPath = path.join(paths.root, newRelativePath);
-
-if (!newAbsPath.startsWith(paths.root)) throw new Error("Invalid name");
-if (newAbsPath === oldAbsPath) {
-return toVideoItem(entry, entry.relativePath.includes("/") ? entry.relativePath.split("/")[0] : "", entry.relativePath);
-}
-const collision = await fs.stat(newAbsPath).catch(() => null);
-if (collision) throw new Error("A file with that name already exists");
-
-await fs.rename(oldAbsPath, newAbsPath);
-
-delete cache.pathIndex![entry.relativePath];
-entry.relativePath = newRelativePath;
-cache.pathIndex![newRelativePath] = id;
-await saveCache(paths, cache);
-
-const folder = newRelativePath.includes("/") ? newRelativePath.split("/")[0] : "";
-return toVideoItem(entry, folder, newRelativePath);
-}
-
-/** Deletes a video's file, its cached thumbnail, and any optimized copy. */
-export async function deleteVideo(id: string): Promise<void> {
-const paths = await getPaths();
-if (!paths) throw new Error("No library configured");
-const cache = await loadCache(paths);
-const entry = cache.entries[id];
-if (!entry) throw new Error("Video not found");
-
-const absPath = path.join(paths.root, entry.relativePath);
-if (!absPath.startsWith(paths.root)) throw new Error("Invalid path");
-
-await fs.unlink(absPath);
-await fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
-await fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
-
-delete cache.entries[id];
-delete cache.pathIndex![entry.relativePath];
-await saveCache(paths, cache);
 }

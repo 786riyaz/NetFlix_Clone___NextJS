@@ -1,6 +1,5 @@
 node_modules
 .next
-out
 .cache
 .env
-*.log
+*.local

@@ -19,7 +19,6 @@ generatedAt: Date.now(),
 ffmpegAvailable,
 videoDir,
 configured: !!videoDir,
-superManagement: process.env.SUPER_MANAGEMENT === "true",
 };
 return NextResponse.json(body);
 }

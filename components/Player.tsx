@@ -10,24 +10,17 @@ markWatched,
 getVolume,
 setVolume as persistVolume,
 } from "@/lib/progress";
-import ManageControls from "./ManageControls";
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 export default function Player({
 video,
 upNext,
 onClose,
 onPlayVideo,
-superManagement = false,
-onRenamed,
-onDeleted,
 }: {
 video: VideoItem;
 upNext: VideoItem[];
 onClose: () => void;
 onPlayVideo: (v: VideoItem) => void;
-superManagement?: boolean;
-onRenamed?: (v: VideoItem) => void;
-onDeleted?: (id: string) => void;
 }) {
 const videoRef = useRef<HTMLVideoElement>(null);
 const [playing, setPlaying] = useState(false);
@@ -312,19 +305,6 @@ showControls ? "opacity-100" : "opacity-0 pointer-events-none"
 <div className="text-xs sm:text-sm text-muted truncate">{video.folder || "Library root"}</div>
 </div>
 <div className="flex items-center gap-2 shrink-0">
-{superManagement && onRenamed && onDeleted && (
-<ManageControls
-video={video}
-size="md"
-onRenamed={(v) => {
-onRenamed(v);
-}}
-onDeleted={(id) => {
-onDeleted(id);
-onClose();
-}}
-/>
-)}
 <button
 onClick={() => setShowShortcuts((s) => !s)}
 className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring"
@@ -426,7 +406,7 @@ max={1}
 step={0.01}
 value={muted ? 0 : volume}
 onChange={(e) => handleVolume(Number(e.target.value))}
-className="w-14 sm:w-0 sm:group-hover/vol:w-20 transition-all duration-200 overflow-hidden"
+className="w-12 sm:w-0 sm:group-hover/vol:w-20 transition-all duration-200 overflow-hidden"
 aria-label="Volume"
 />
 </div>
