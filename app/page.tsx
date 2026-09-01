@@ -28,6 +28,7 @@ const [folder, setFolder] = useState("");
 const [playing, setPlaying] = useState<VideoItem | null>(null);
 const [continueIds, setContinueIds] = useState<string[]>([]);
 const [view, setView] = useState<ViewMode>("browse");
+const [superManagement, setSuperManagement] = useState(false);
 const searchInputRef = useRef<HTMLInputElement>(null);
 const isFirstLoad = useRef(true);
 
@@ -54,6 +55,7 @@ setFolders(data.folders);
 setFfmpegAvailable(data.ffmpegAvailable);
 setVideoDirState(data.videoDir);
 setConfigured(data.configured);
+setSuperManagement(!!data.superManagement);
 if (!data.configured) setShowPicker(true);
 if (rescan && !isFirstLoad.current) {
 pushToast(`Library rescanned — ${data.videos.length} video${data.videos.length === 1 ? "" : "s"} found.`, "success");
@@ -109,6 +111,13 @@ if (!res.ok) throw new Error(data.error || "Could not use that folder");
 setShowPicker(false);
 pushToast("Library folder updated — indexing…", "info");
 await load(true);
+}
+function handleRenamed(updated: VideoItem) {
+setVideos((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
+}
+function handleDeleted(id: string) {
+setVideos((prev) => prev.filter((v) => v.id !== id));
+setContinueIds((prev) => prev.filter((i) => i !== id));
 }
 const filtered = useMemo(() => {
 let list = videos;
@@ -263,10 +272,10 @@ Play
 )}
 {showBrowseLayout && (
 <>
-<Row title="Continue Watching" videos={continueWatching} onPlay={setPlaying} emptyHint="Nothing in progress — start watching something below." />
-<Row title="Recently Added" videos={recentlyAdded} onPlay={setPlaying} />
+<Row title="Continue Watching" videos={continueWatching} onPlay={setPlaying} emptyHint="Nothing in progress — start watching something below." superManagement={superManagement} onRenamed={handleRenamed} onDeleted={handleDeleted} />
+<Row title="Recently Added" videos={recentlyAdded} onPlay={setPlaying} superManagement={superManagement} onRenamed={handleRenamed} onDeleted={handleDeleted} />
 {folderRows.map((r) => (
-<Row key={r.name} title={r.name} videos={r.items} onPlay={setPlaying} />
+<Row key={r.name} title={r.name} videos={r.items} onPlay={setPlaying} superManagement={superManagement} onRenamed={handleRenamed} onDeleted={handleDeleted} />
 ))}
 </>
 )}
@@ -277,7 +286,14 @@ Play
 <h2 className="text-[17px] sm:text-[19px] font-semibold mb-3 px-4 sm:px-10">
 {isFiltering ? `Results (${filtered.length})` : "All Videos"}
 </h2>
-<LazyGrid videos={filtered} onPlay={setPlaying} mode={view === "list" ? "list" : "grid"} />
+<LazyGrid
+videos={filtered}
+onPlay={setPlaying}
+mode={view === "list" ? "list" : "grid"}
+superManagement={superManagement}
+onRenamed={handleRenamed}
+onDeleted={handleDeleted}
+/>
 </section>
 </>
 )}
@@ -287,6 +303,9 @@ video={playing}
 upNext={upNext}
 onClose={() => setPlaying(null)}
 onPlayVideo={(v) => setPlaying(v)}
+superManagement={superManagement}
+onRenamed={handleRenamed}
+onDeleted={handleDeleted}
 />
 )}
 <BackToTop />
