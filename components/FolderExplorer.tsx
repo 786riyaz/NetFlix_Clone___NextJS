@@ -1,6 +1,7 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { VideoItem } from "@/lib/types";
+import { useGridKeyboardNav } from "@/lib/useGridKeyboardNav";
 import Card from "./Card";
 interface TreeNode {
 name: string;
@@ -48,6 +49,26 @@ folderPaths: string[];
 }) {
 const tree = useMemo(() => buildTree(videos), [videos]);
 const [segments, setSegments] = useState<string[]>([]);
+const handleKeyNav = useGridKeyboardNav();
+const containerRef = useRef<HTMLDivElement>(null);
+const wasKeyboardNav = useRef(false);
+
+function goTo(depth: number) {
+wasKeyboardNav.current = true;
+setSegments((s) => s.slice(0, depth));
+}
+function enter(name: string) {
+wasKeyboardNav.current = true;
+setSegments((s) => [...s, name]);
+}
+// After navigating into/out of a folder, keep keyboard focus inside the
+// grid instead of losing it to document.body — otherwise every folder
+// change would force a keyboard user back to Tab-ing from the top.
+useEffect(() => {
+if (!wasKeyboardNav.current) return;
+wasKeyboardNav.current = false;
+containerRef.current?.querySelector<HTMLElement>('[role="button"][tabindex]')?.focus();
+}, [segments]);
 
 const current = useMemo(() => {
 let node = tree;
@@ -68,19 +89,12 @@ const filesHere = useMemo(
 [current]
 );
 
-function goTo(depth: number) {
-setSegments((s) => s.slice(0, depth));
-}
-function enter(name: string) {
-setSegments((s) => [...s, name]);
-}
-
 if (!subfolders.length && !filesHere.length && segments.length === 0) {
 return <div className="px-4 sm:px-10 py-10 text-muted text-sm">No videos match your filters.</div>;
 }
 
 return (
-<div className="px-4 sm:px-10">
+<div ref={containerRef} className="px-4 sm:px-10" onKeyDown={handleKeyNav}>
 {/* Breadcrumb */}
 <nav className="flex items-center gap-1 flex-wrap text-sm mb-4" aria-label="Folder path">
 <button

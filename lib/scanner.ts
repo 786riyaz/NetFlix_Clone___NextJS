@@ -494,22 +494,27 @@ await saveCache(paths, cache);
 }
 return cache.ffmpegAvailable;
 }
-export async function resolveVideoPath(id: string): Promise<{ absPath: string; ext: string } | null> {
+export async function resolveVideoPath(id: string): Promise<{ absPath: string; ext: string; downloadName: string } | null> {
 const paths = await getPaths();
 if (!paths) return null;
 const cache = await loadCache(paths);
 const entry = cache.entries[id];
 if (!entry) return null;
+const originalBase = path.basename(entry.relativePath, path.extname(entry.relativePath));
 if (entry.optimized) {
 const optimizedPath = path.join(paths.optimizedDir, `${id}.mp4`);
 const stat = await fs.stat(optimizedPath).catch(() => null);
-if (stat) return { absPath: optimizedPath, ext: "mp4" };
+// The optimized copy is always an mp4 container regardless of the
+// source format, so its download name should say .mp4 too — naming
+// it after the original extension would mislabel what's actually
+// inside the file.
+if (stat) return { absPath: optimizedPath, ext: "mp4", downloadName: `${originalBase}.mp4` };
 }
 const absPath = path.join(paths.root, entry.relativePath);
 // guard against any path traversal — resolved path must stay inside the library root
 if (!absPath.startsWith(paths.root)) return null;
 const ext = path.extname(entry.relativePath).slice(1).toLowerCase();
-return { absPath, ext };
+return { absPath, ext, downloadName: path.basename(entry.relativePath) };
 }
 export async function resolveThumbnailPath(id: string): Promise<string | null> {
 const paths = await getPaths();

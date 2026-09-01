@@ -11,6 +11,7 @@ getVolume,
 setVolume as persistVolume,
 } from "@/lib/progress";
 import ManageControls from "./ManageControls";
+import DownloadButton from "./DownloadButton";
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 export default function Player({
 video,
@@ -328,6 +329,7 @@ showControls ? "opacity-100" : "opacity-0 pointer-events-none"
 <div className="text-xs sm:text-sm text-muted truncate">{video.folder || "Library root"}</div>
 </div>
 <div className="flex items-center gap-2 shrink-0">
+<DownloadButton videoId={video.id} size="md" />
 {superAdmin && onRenamed && onDeleted && (
 <ManageControls
 video={video}

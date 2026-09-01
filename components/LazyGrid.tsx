@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { VideoItem } from "@/lib/types";
+import { useGridKeyboardNav } from "@/lib/useGridKeyboardNav";
 import Card from "./Card";
 import ListItem from "./ListItem";
 const PAGE_SIZE = 24;
@@ -23,6 +24,7 @@ folderPaths?: string[];
 }) {
 const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 const sentinelRef = useRef<HTMLDivElement>(null);
+const handleKeyNav = useGridKeyboardNav();
 useEffect(() => {
 setVisibleCount(PAGE_SIZE);
 }, [videos]);
@@ -45,7 +47,7 @@ if (!videos.length) {
 return <div className="px-4 sm:px-10 py-10 text-muted text-sm">No videos match your filters.</div>;
 }
 return (
-<div className="px-4 sm:px-10">
+<div className="px-4 sm:px-10" onKeyDown={handleKeyNav}>
 {mode === "list" ? (
 <div className="flex flex-col gap-1">
 {visible.map((v) => (

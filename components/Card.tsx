@@ -5,6 +5,7 @@ import { fmtDuration } from "@/lib/format";
 import { getSavedTime, isWatched } from "@/lib/progress";
 import OptimizeBadge from "./OptimizeBadge";
 import ManageControls from "./ManageControls";
+import DownloadButton from "./DownloadButton";
 export default function Card({
 video,
 onPlay,
@@ -119,8 +120,14 @@ imgLoaded ? "opacity-100" : "opacity-0"
 </div>
 )}
 {superAdmin && onRenamed && onDeleted && (
-<div className="absolute bottom-1.5 left-1.5">
+<div className="absolute bottom-1.5 left-1.5 flex items-center gap-1">
+<DownloadButton videoId={video.id} />
 <ManageControls video={video} onRenamed={onRenamed} onDeleted={onDeleted} folderPaths={folderPaths} />
+</div>
+)}
+{!(superAdmin && onRenamed && onDeleted) && (
+<div className="absolute bottom-1.5 left-1.5">
+<DownloadButton videoId={video.id} />
 </div>
 )}
 {progressPct > 1 && !watched && (

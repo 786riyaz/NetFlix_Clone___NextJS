@@ -5,6 +5,7 @@ import { fmtDuration, fmtSize, fmtDate } from "@/lib/format";
 import { getSavedTime, isWatched } from "@/lib/progress";
 import OptimizeBadge from "./OptimizeBadge";
 import ManageControls from "./ManageControls";
+import DownloadButton from "./DownloadButton";
 export default function ListItem({
 video,
 onPlay,
@@ -105,6 +106,7 @@ imgLoaded ? "opacity-100" : "opacity-0"
 {superAdmin && onRenamed && onDeleted && (
 <ManageControls video={video} onRenamed={onRenamed} onDeleted={onDeleted} folderPaths={folderPaths} />
 )}
+<DownloadButton videoId={video.id} />
 </div>
 );
 }
