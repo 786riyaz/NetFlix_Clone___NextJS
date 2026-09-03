@@ -8,10 +8,12 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
 const forceRescan = req.nextUrl.searchParams.get("rescan") === "1";
 const videoDir = await getVideoDir();
-const [videos, ffmpegAvailable] = await Promise.all([
-getLibrary(forceRescan),
-isFfmpegAvailable(),
-]);
+// getLibrary() is what actually performs the fresh ffmpeg re-check on a
+// forced rescan (see scanner.ts) — running it before isFfmpegAvailable()
+// rather than in parallel means the banner reflects that fresh result
+// instead of racing it and reading the stale cached value.
+const videos = await getLibrary(forceRescan);
+const ffmpegAvailable = await isFfmpegAvailable();
 const folders = Array.from(new Set(videos.map((v) => v.folder).filter(Boolean))).sort();
 const body: LibraryResponse = {
 videos,

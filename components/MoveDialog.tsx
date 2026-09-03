@@ -20,7 +20,10 @@ return (
 <div
 className="fixed inset-0 z-[110] bg-black/70 flex items-start sm:items-center justify-center p-4 pt-16 sm:pt-4"
 onClick={onCancel}
-onKeyDown={(e) => e.key === "Escape" && onCancel()}
+onKeyDown={(e) => {
+e.stopPropagation();
+if (e.key === "Escape") onCancel();
+}}
 >
 <form
 onClick={(e) => e.stopPropagation()}

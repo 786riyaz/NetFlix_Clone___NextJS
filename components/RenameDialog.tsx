@@ -15,7 +15,18 @@ onCancel: () => void;
 }) {
 const [name, setName] = useState(currentName);
 return (
-<div className="fixed inset-0 z-[110] bg-black/70 flex items-start sm:items-center justify-center p-4 pt-16 sm:pt-4" onClick={onCancel} onKeyDown={(e) => e.key === "Escape" && onCancel()}>
+<div
+className="fixed inset-0 z-[110] bg-black/70 flex items-start sm:items-center justify-center p-4 pt-16 sm:pt-4"
+onClick={onCancel}
+onKeyDown={(e) => {
+// Stop every key from bubbling up to whatever's underneath (the
+// video card's own Enter/Space-to-play handler, the grid's
+// arrow-key navigation, the player's shortcuts) — this dialog is
+// modal, so nothing typed here should reach the page behind it.
+e.stopPropagation();
+if (e.key === "Escape") onCancel();
+}}
+>
 <form
 onClick={(e) => e.stopPropagation()}
 onSubmit={(e) => {

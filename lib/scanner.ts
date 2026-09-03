@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
 import { spawn } from "child_process";
-import type { VideoItem } from "./types";
+import type { VideoItem, AudioTrackInfo, SubtitleTrackInfo } from "./types";
 import { getVideoDir } from "./config";
 import { BUNDLED_FFMPEG_PATH, BUNDLED_FFPROBE_PATH } from "./ffmpeg-bin";
 import { isFastStart, remuxFastStart, FASTSTART_EXTS } from "./faststart";
@@ -45,6 +45,8 @@ height?: number | null;
 bitRate?: number | null;
 vfr?: boolean;
 needsOptimize?: boolean;
+audioTracks?: AudioTrackInfo[];
+subtitleTracks?: SubtitleTrackInfo[];
 }
 interface CacheFile {
 entries: Record<string, CacheEntry>;
@@ -60,6 +62,8 @@ interface LibraryPaths {
 root: string;
 thumbDir: string;
 optimizedDir: string;
+audioDir: string;
+subtitleDir: string;
 cacheFile: string;
 }
 // The chosen library folder can change at runtime, so caches are keyed per
@@ -80,6 +84,8 @@ return {
 root,
 thumbDir: path.join(dir, "thumbnails"),
 optimizedDir: path.join(dir, "optimized"),
+audioDir: path.join(dir, "audio-tracks"),
+subtitleDir: path.join(dir, "subtitles"),
 cacheFile: path.join(dir, "library.json"),
 };
 }
@@ -87,9 +93,11 @@ function makeId(): string {
 // No longer derived from the path — see the pathIndex comment above.
 return crypto.randomBytes(16).toString("hex");
 }
-async function ensureDirs(thumbDir: string, optimizedDir?: string) {
+async function ensureDirs(thumbDir: string, optimizedDir?: string, audioDir?: string, subtitleDir?: string) {
 await fs.mkdir(thumbDir, { recursive: true });
 if (optimizedDir) await fs.mkdir(optimizedDir, { recursive: true });
+if (audioDir) await fs.mkdir(audioDir, { recursive: true });
+if (subtitleDir) await fs.mkdir(subtitleDir, { recursive: true });
 }
 async function loadCache(paths: LibraryPaths): Promise<CacheFile> {
 if (memCache && memCacheRoot === paths.root) return memCache;
@@ -112,7 +120,7 @@ memCacheRoot = paths.root;
 return memCache!;
 }
 async function saveCache(paths: LibraryPaths, cache: CacheFile) {
-await ensureDirs(paths.thumbDir, paths.optimizedDir);
+await ensureDirs(paths.thumbDir, paths.optimizedDir, paths.audioDir, paths.subtitleDir);
 await fs.writeFile(paths.cacheFile, JSON.stringify(cache), "utf-8");
 }
 /** Call after the user picks a new library folder so stale data isn't served. */
@@ -163,7 +171,7 @@ remuxQueueRunning = false;
 
 const metaBackfillInProgress = new Set<string>();
 function scheduleMetaBackfill(paths: LibraryPaths, id: string, absPath: string, cache: CacheFile) {
-if (cache.entries[id]?.needsOptimize !== undefined) return; // already probed
+if (cache.entries[id]?.audioTracks !== undefined) return; // already probed
 if (metaBackfillInProgress.has(id)) return;
 metaBackfillInProgress.add(id);
 probeMeta(absPath)
@@ -177,6 +185,8 @@ entry.height = meta.height;
 entry.bitRate = meta.bitRate;
 entry.vfr = meta.vfr;
 entry.needsOptimize = needsOptimize(meta);
+entry.audioTracks = meta.audioTracks;
+entry.subtitleTracks = meta.subtitleTracks;
 await saveCache(paths, fresh);
 }
 })
@@ -218,13 +228,32 @@ return next();
 await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => next()));
 return results;
 }
+let ffmpegCheckLogged = false;
 function checkFfmpegAvailable(): Promise<boolean> {
 return new Promise((resolve) => {
 const p = spawn(FFPROBE_BIN, ["-version"]);
-p.on("error", () => resolve(false));
-p.on("exit", (code) => resolve(code === 0));
+p.on("error", (err: any) => {
+if (!ffmpegCheckLogged) {
+ffmpegCheckLogged = true;
+console.error(
+`[ffmpeg] Could not run ffprobe at "${FFPROBE_BIN}" — ${err?.code || err?.message || err}. ` +
+`Thumbnails, durations, audio-track and subtitle detection are all disabled until this is fixed. ` +
+`BUNDLED_FFPROBE_PATH resolved to: ${BUNDLED_FFPROBE_PATH || "(null — ffprobe-static failed to load)"}`
+);
+}
+resolve(false);
+});
+p.on("exit", (code) => {
+if (code !== 0 && !ffmpegCheckLogged) {
+ffmpegCheckLogged = true;
+console.error(`[ffmpeg] ffprobe at "${FFPROBE_BIN}" exited with code ${code} on "-version" check.`);
+}
+resolve(code === 0);
+});
 });
 }
+export type SubtitleCodec = "text" | "image"; // image-based (PGS/VobSub) can't be converted to WebVTT
+const TEXT_SUBTITLE_CODECS = new Set(["subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"]);
 function probeMeta(absPath: string): Promise<{
 duration: number;
 codec: string | null;
@@ -232,37 +261,81 @@ width: number | null;
 height: number | null;
 bitRate: number | null;
 vfr: boolean;
+audioTracks: AudioTrackInfo[];
+subtitleTracks: SubtitleTrackInfo[];
 }> {
 return new Promise((resolve) => {
+const empty = {
+duration: 0,
+codec: null,
+width: null,
+height: null,
+bitRate: null,
+vfr: false,
+audioTracks: [],
+subtitleTracks: [],
+};
 const args = [
 "-v", "error",
-"-select_streams", "v:0",
-"-show_entries", "format=duration:stream=codec_name,width,height,bit_rate,r_frame_rate,avg_frame_rate",
+"-show_entries",
+"format=duration:stream=index,codec_type,codec_name,width,height,bit_rate,r_frame_rate,avg_frame_rate:stream_tags=language,title",
 "-of", "json",
 absPath,
 ];
 const p = spawn(FFPROBE_BIN, args);
 let out = "";
+let errOut = "";
 p.stdout.on("data", (d) => (out += d.toString()));
-p.on("error", () => resolve({ duration: 0, codec: null, width: null, height: null, bitRate: null, vfr: false }));
-p.on("exit", () => {
+p.stderr.on("data", (d) => (errOut += d.toString()));
+p.on("error", (err) => {
+console.error(`[probeMeta] failed to spawn ffprobe for "${absPath}":`, err.message);
+resolve(empty);
+});
+p.on("exit", (code) => {
+if (code !== 0) {
+console.error(`[probeMeta] ffprobe exited with code ${code} for "${absPath}": ${errOut.trim()}`);
+resolve(empty);
+return;
+}
 try {
 const parsed = JSON.parse(out);
 const duration = parseFloat(parsed?.format?.duration);
-const stream = parsed?.streams?.[0];
-const codec: string | null = stream?.codec_name ?? null;
-const width: number | null = stream?.width ?? null;
-const height: number | null = stream?.height ?? null;
-const bitRate: number | null = stream?.bit_rate ? parseInt(stream.bit_rate, 10) : null;
+const streams: any[] = parsed?.streams || [];
+const videoStream = streams.find((s) => s.codec_type === "video");
+const audioStreams = streams.filter((s) => s.codec_type === "audio");
+const subtitleStreams = streams.filter((s) => s.codec_type === "subtitle");
+const codec: string | null = videoStream?.codec_name ?? null;
+const width: number | null = videoStream?.width ?? null;
+const height: number | null = videoStream?.height ?? null;
+const bitRate: number | null = videoStream?.bit_rate ? parseInt(videoStream.bit_rate, 10) : null;
 // Format Factory (and similar tools) frequently produce variable
 // frame rate output even from a constant-rate source. r_frame_rate
 // (the stream's stated rate) diverging from avg_frame_rate (the
 // actual average) is the standard signal for VFR — and VFR is one
 // of the most common causes of stutter that shows up in *every*
 // player, not just ours, because the decoder keeps mistiming frames.
-const rFps = parseFrameRate(stream?.r_frame_rate);
-const avgFps = parseFrameRate(stream?.avg_frame_rate);
+const rFps = parseFrameRate(videoStream?.r_frame_rate);
+const avgFps = parseFrameRate(videoStream?.avg_frame_rate);
 const vfr = rFps !== null && avgFps !== null && Math.abs(rFps - avgFps) > 0.5;
+const audioTracks: AudioTrackInfo[] = audioStreams.map((s, i) => ({
+index: i,
+codec: s.codec_name ?? null,
+language: s.tags?.language ?? null,
+title: s.tags?.title ?? null,
+}));
+const subtitleTracks: SubtitleTrackInfo[] = subtitleStreams.map((s, i) => ({
+index: i,
+codec: s.codec_name ?? null,
+language: s.tags?.language ?? null,
+title: s.tags?.title ?? null,
+convertible: TEXT_SUBTITLE_CODECS.has((s.codec_name || "").toLowerCase()),
+}));
+if (audioTracks.length === 0 && audioStreams.length === 0) {
+// Not necessarily wrong (some files genuinely have one or zero audio
+// streams) but worth a breadcrumb, since "why didn't the Audio
+// button show up" is otherwise a black box.
+console.warn(`[probeMeta] no audio streams detected in "${absPath}" — raw stream list:`, JSON.stringify(streams.map((s: any) => ({ index: s.index, codec_type: s.codec_type, codec_name: s.codec_name }))));
+}
 resolve({
 duration: Number.isFinite(duration) ? duration : 0,
 codec,
@@ -270,9 +343,12 @@ width,
 height,
 bitRate,
 vfr,
+audioTracks,
+subtitleTracks,
 });
-} catch {
-resolve({ duration: 0, codec: null, width: null, height: null, bitRate: null, vfr: false });
+} catch (err: any) {
+console.error(`[probeMeta] failed to parse ffprobe JSON for "${absPath}":`, err?.message, "| raw output:", out.slice(0, 500));
+resolve(empty);
 }
 });
 });
@@ -364,9 +440,13 @@ const paths = await getPaths();
 if (!paths) return [];
 if (scanInFlight) return scanInFlight;
 scanInFlight = (async () => {
-await ensureDirs(paths.thumbDir, paths.optimizedDir);
+await ensureDirs(paths.thumbDir, paths.optimizedDir, paths.audioDir, paths.subtitleDir);
 const cache = await loadCache(paths);
-if (cache.ffmpegAvailable === null) {
+// A forced rescan re-checks ffmpeg availability rather than trusting a
+// cached "false" forever — otherwise fixing the underlying problem
+// (installing ffmpeg, restoring a quarantined binary, etc) would be
+// invisible to the app until someone thought to clear the whole cache.
+if (cache.ffmpegAvailable === null || forceRescan) {
 cache.ffmpegAvailable = await checkFfmpegAvailable();
 }
 const found: { relativePath: string; abs: string; folder: string }[] = [];
@@ -410,7 +490,7 @@ if (pending.length) {
 const processed = await runWithConcurrency(pending, 3, async (f) => {
 const meta = cache.ffmpegAvailable
 ? await probeMeta(f.abs)
-: { duration: 0, codec: null, width: null, height: null, bitRate: null, vfr: false };
+: { duration: 0, codec: null, width: null, height: null, bitRate: null, vfr: false, audioTracks: [], subtitleTracks: [] };
 const hasThumbnail = cache.ffmpegAvailable
 ? await generateThumbnail(f.abs, f.id, meta.duration, paths.thumbDir)
 : false;
@@ -434,6 +514,8 @@ bitRate: meta.bitRate,
 vfr: meta.vfr,
 needsOptimize: previouslyOptimized ? false : needsOptimize(meta),
 optimized: previouslyOptimized,
+audioTracks: meta.audioTracks,
+subtitleTracks: meta.subtitleTracks,
 };
 cache.entries[f.id] = entry;
 if (cache.ffmpegAvailable && !previouslyOptimized) {
@@ -450,6 +532,7 @@ if (!seenIds.has(id)) {
 delete cache.entries[id];
 fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
 fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
+deleteAudioTrackFiles(paths, id).catch(() => {});
 }
 }
 // Rebuild pathIndex fresh from the final entries — self-healing against
@@ -482,6 +565,8 @@ ext,
 hasThumbnail: entry.hasThumbnail,
 needsOptimize: !!entry.needsOptimize && !entry.optimized,
 optimized: !!entry.optimized,
+audioTracks: entry.audioTracks || [],
+subtitleTracks: entry.subtitleTracks || [],
 };
 }
 export async function isFfmpegAvailable(): Promise<boolean> {
@@ -494,13 +579,24 @@ await saveCache(paths, cache);
 }
 return cache.ffmpegAvailable;
 }
-export async function resolveVideoPath(id: string): Promise<{ absPath: string; ext: string; downloadName: string } | null> {
+export async function resolveVideoPath(
+id: string,
+trackIndex?: number
+): Promise<{ absPath: string; ext: string; downloadName: string } | null> {
 const paths = await getPaths();
 if (!paths) return null;
 const cache = await loadCache(paths);
 const entry = cache.entries[id];
 if (!entry) return null;
 const originalBase = path.basename(entry.relativePath, path.extname(entry.relativePath));
+// A specific (non-default) audio track takes priority over the optimized
+// copy when both exist — someone who explicitly picked a language wants
+// that language, not whichever one the optimize pass happened to keep.
+if (trackIndex !== undefined && trackIndex > 0) {
+const trackPath = path.join(paths.audioDir, `${id}-${trackIndex}.mp4`);
+const stat = await fs.stat(trackPath).catch(() => null);
+if (stat) return { absPath: trackPath, ext: "mp4", downloadName: `${originalBase}.mp4` };
+}
 if (entry.optimized) {
 const optimizedPath = path.join(paths.optimizedDir, `${id}.mp4`);
 const stat = await fs.stat(optimizedPath).catch(() => null);
@@ -639,8 +735,77 @@ if (!absPath.startsWith(paths.root)) throw new Error("Invalid path");
 await fs.unlink(absPath);
 await fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
 await fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
+await deleteAudioTrackFiles(paths, id);
 
 delete cache.entries[id];
 delete cache.pathIndex![entry.relativePath];
 await saveCache(paths, cache);
+}
+
+async function deleteAudioTrackFiles(paths: LibraryPaths, id: string): Promise<void> {
+await deleteFilesForId(paths.audioDir, id);
+await deleteFilesForId(paths.subtitleDir, id);
+}
+async function deleteFilesForId(dir: string, id: string): Promise<void> {
+try {
+const files = await fs.readdir(dir);
+await Promise.all(
+files
+.filter((f) => f.startsWith(`${id}-`))
+.map((f) => fs.unlink(path.join(dir, f)).catch(() => {}))
+);
+} catch {
+// dir may not exist yet — nothing to clean up
+}
+}
+
+/** Everything the audio-track switch API needs: the source file to remux
+ * from (always the original, not an already-optimized copy, so track
+ * selection isn't limited by what a prior optimize pass kept), where the
+ * per-track result should be written, and the track list to validate
+ * against. */
+export async function getAudioTrackSwitchTarget(
+id: string,
+trackIndex: number
+): Promise<{ absPath: string; outPath: string; track: AudioTrackInfo } | null> {
+const paths = await getPaths();
+if (!paths) return null;
+const cache = await loadCache(paths);
+const entry = cache.entries[id];
+if (!entry) return null;
+const track = (entry.audioTracks || []).find((t) => t.index === trackIndex);
+if (!track) return null;
+const absPath = path.join(paths.root, entry.relativePath);
+if (!absPath.startsWith(paths.root)) return null;
+return { absPath, outPath: path.join(paths.audioDir, `${id}-${trackIndex}.mp4`), track };
+}
+
+/** Resolves the already-remuxed file for a specific audio track, if the
+ * background job for it has finished. Returns null if it hasn't (or was
+ * never requested) — the caller should fall back to the default stream. */
+export async function resolveAudioTrackPath(id: string, trackIndex: number): Promise<string | null> {
+const paths = await getPaths();
+if (!paths) return null;
+const outPath = path.join(paths.audioDir, `${id}-${trackIndex}.mp4`);
+const stat = await fs.stat(outPath).catch(() => null);
+return stat ? outPath : null;
+}
+
+/** Everything the subtitle extraction route needs: source file, cached
+ * .vtt output path, and the track metadata (to reject image-based
+ * subtitle formats up front rather than letting ffmpeg fail on them). */
+export async function getSubtitleExtractTarget(
+id: string,
+trackIndex: number
+): Promise<{ absPath: string; outPath: string; track: SubtitleTrackInfo } | null> {
+const paths = await getPaths();
+if (!paths) return null;
+const cache = await loadCache(paths);
+const entry = cache.entries[id];
+if (!entry) return null;
+const track = (entry.subtitleTracks || []).find((t) => t.index === trackIndex);
+if (!track) return null;
+const absPath = path.join(paths.root, entry.relativePath);
+if (!absPath.startsWith(paths.root)) return null;
+return { absPath, outPath: path.join(paths.subtitleDir, `${id}-${trackIndex}.vtt`), track };
 }

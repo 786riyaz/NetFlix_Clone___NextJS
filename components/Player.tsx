@@ -12,6 +12,7 @@ setVolume as persistVolume,
 } from "@/lib/progress";
 import ManageControls from "./ManageControls";
 import DownloadButton from "./DownloadButton";
+import { languageName } from "@/lib/languages";
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 export default function Player({
 video,
@@ -36,6 +37,96 @@ const queueIdx = queue.findIndex((v) => v.id === video.id);
 const prevVideo = queueIdx > 0 ? queue[queueIdx - 1] : null;
 const nextVideo = queueIdx >= 0 && queueIdx < queue.length - 1 ? queue[queueIdx + 1] : null;
 const videoRef = useRef<HTMLVideoElement>(null);
+// Audio track selection. Switching tracks means swapping the <video> src
+// (see videoSrc below) — the browser reloads the resource, so we stash
+// where playback was and resume there once the new source is ready,
+// rather than resetting to 0:00 every time someone changes language.
+const [audioTrackIndex, setAudioTrackIndex] = useState(0);
+const [audioMenuOpen, setAudioMenuOpen] = useState(false);
+const [switchingAudio, setSwitchingAudio] = useState(false);
+const [audioSwitchError, setAudioSwitchError] = useState<string | null>(null);
+const pendingResumeRef = useRef<{ time: number; playing: boolean } | null>(null);
+const videoSrc =
+audioTrackIndex > 0 ? `/api/video/${video.id}?track=${audioTrackIndex}` : `/api/video/${video.id}`;
+// Subtitles: only text-based tracks (SRT/ASS/etc, converted server-side
+// to WebVTT) can actually be shown — image-based ones (PGS/VobSub) are
+// listed as unavailable rather than silently omitted, so someone who
+// saw 4 subtitle languages in VLC understands why only some show up here.
+const convertibleSubtitles = video.subtitleTracks?.filter((t) => t.convertible) ?? [];
+const unconvertibleSubtitles = video.subtitleTracks?.filter((t) => !t.convertible) ?? [];
+const [subtitleIndex, setSubtitleIndex] = useState<number | null>(null);
+const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
+useEffect(() => {
+setAudioTrackIndex(0);
+setAudioMenuOpen(false);
+setSwitchingAudio(false);
+setAudioSwitchError(null);
+setSubtitleIndex(null);
+setSubtitleMenuOpen(false);
+}, [video.id]);
+// Reflect the chosen subtitle (or "off") onto the video element's real
+// TextTrack objects — index-matched to the order convertibleSubtitles
+// was rendered in, since that's the same order the <track> children
+// appear in the DOM.
+useEffect(() => {
+const v = videoRef.current;
+if (!v) return;
+for (let i = 0; i < v.textTracks.length; i++) {
+v.textTracks[i].mode = convertibleSubtitles[i]?.index === subtitleIndex ? "showing" : "hidden";
+}
+}, [subtitleIndex, video.id, convertibleSubtitles.length]);
+useEffect(() => {
+if (!subtitleMenuOpen) return;
+function onDocClick() {
+setSubtitleMenuOpen(false);
+}
+document.addEventListener("click", onDocClick);
+return () => document.removeEventListener("click", onDocClick);
+}, [subtitleMenuOpen]);
+async function selectAudioTrack(idx: number) {
+if (idx === audioTrackIndex) {
+setAudioMenuOpen(false);
+return;
+}
+const v = videoRef.current;
+pendingResumeRef.current = { time: v?.currentTime || 0, playing: !!v && !v.paused };
+setAudioMenuOpen(false);
+setAudioSwitchError(null);
+if (idx === 0) {
+// The default track is always already there — no remux to wait for.
+setAudioTrackIndex(0);
+return;
+}
+setSwitchingAudio(true);
+try {
+let status = await fetch(`/api/audio-track/${video.id}?track=${idx}`).then((r) => r.json());
+if (status.state !== "done") {
+await fetch(`/api/audio-track/${video.id}`, {
+method: "POST",
+headers: { "Content-Type": "application/json" },
+body: JSON.stringify({ trackIndex: idx }),
+});
+// Fast stream-copy remux — typically done in a few seconds even for
+// large files, but poll rather than assume.
+for (let i = 0; i < 60; i++) {
+await new Promise((r) => setTimeout(r, 1000));
+status = await fetch(`/api/audio-track/${video.id}?track=${idx}`).then((r) => r.json());
+if (status.state === "done" || status.state === "error") break;
+}
+}
+if (status.state === "done") {
+setAudioTrackIndex(idx);
+} else {
+setSwitchingAudio(false);
+setAudioSwitchError(status.error || "Couldn't switch audio track.");
+pendingResumeRef.current = null;
+}
+} catch {
+setSwitchingAudio(false);
+setAudioSwitchError("Couldn't switch audio track.");
+pendingResumeRef.current = null;
+}
+}
 const [playing, setPlaying] = useState(false);
 const [current, setCurrent] = useState(0);
 const [duration, setDuration] = useState(video.duration || 0);
@@ -47,6 +138,8 @@ const [loading, setLoading] = useState(true);
 // the video itself, mirroring the familiar YouTube/Netflix feedback.
 const [clickFeedback, setClickFeedback] = useState<"play" | "pause" | null>(null);
 const clickFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+const [seekFeedback, setSeekFeedback] = useState<"fwd" | "back" | null>(null);
+const seekFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 const [showShortcuts, setShowShortcuts] = useState(false);
 const [volume, setVolumeState] = useState(1);
 // Videos always start muted — the person clicks the volume/unmute button
@@ -100,6 +193,17 @@ return () => {
 if (hideTimer.current) clearTimeout(hideTimer.current);
 };
 }, [resetHideTimer]);
+// Close the audio-language menu on any click outside it (standard
+// popover behavior) rather than leaving it open until something else
+// happens to re-render the component.
+useEffect(() => {
+if (!audioMenuOpen) return;
+function onDocClick() {
+setAudioMenuOpen(false);
+}
+document.addEventListener("click", onDocClick);
+return () => document.removeEventListener("click", onDocClick);
+}, [audioMenuOpen]);
 function togglePlay() {
 const v = videoRef.current;
 if (!v) return;
@@ -115,6 +219,34 @@ togglePlay();
 setClickFeedback(willPlay ? "play" : "pause");
 if (clickFeedbackTimer.current) clearTimeout(clickFeedbackTimer.current);
 clickFeedbackTimer.current = setTimeout(() => setClickFeedback(null), 550);
+}
+// Netflix/YouTube-style double-tap-to-seek: single click toggles
+// play/pause, double click on the left/right half skips ±10s instead.
+// A single click's own action is *delayed* just long enough to see
+// whether a second click follows — if it does, the single-click action
+// (play/pause) is cancelled and the double-click seek runs instead, so
+// double-clicking never flickers play/pause first.
+const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+const pendingClicks = useRef(0);
+function handleVideoAreaClick(e: React.MouseEvent<HTMLDivElement>) {
+const clientX = e.clientX;
+const rect = e.currentTarget.getBoundingClientRect();
+pendingClicks.current += 1;
+if (pendingClicks.current === 1) {
+clickTimer.current = setTimeout(() => {
+if (pendingClicks.current === 1) handleVideoClick();
+pendingClicks.current = 0;
+}, 280);
+} else {
+if (clickTimer.current) clearTimeout(clickTimer.current);
+pendingClicks.current = 0;
+const isRightHalf = clientX - rect.left > rect.width / 2;
+skip(isRightHalf ? 10 : -10);
+resetHideTimer();
+setSeekFeedback(isRightHalf ? "fwd" : "back");
+if (seekFeedbackTimer.current) clearTimeout(seekFeedbackTimer.current);
+seekFeedbackTimer.current = setTimeout(() => setSeekFeedback(null), 500);
+}
 }
 function skip(delta: number) {
 const v = videoRef.current;
@@ -214,6 +346,12 @@ break;
 case "m":
 toggleMute();
 break;
+case "c":
+case "C":
+if (convertibleSubtitles.length > 0) {
+setSubtitleIndex((cur) => (cur === null ? convertibleSubtitles[0].index : null));
+}
+break;
 case "n":
 case "N":
 playNext();
@@ -257,7 +395,7 @@ break;
 window.addEventListener("keydown", onKey);
 return () => window.removeEventListener("keydown", onKey);
 // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [showShortcuts, video.id, nextVideo, prevVideo]);
+}, [showShortcuts, video.id, nextVideo, prevVideo, convertibleSubtitles.length]);
 const pct = duration ? (current / duration) * 100 : 0;
 return (
 <div
@@ -265,11 +403,14 @@ className="fixed inset-0 z-50 bg-black flex flex-col"
 onMouseMove={resetHideTimer}
 onClick={resetHideTimer}
 >
-<div className="relative flex-1 flex items-center justify-center overflow-hidden">
+<div
+className="relative flex-1 flex items-center justify-center overflow-hidden"
+onClick={handleVideoAreaClick}
+>
 <video
 ref={videoRef}
 className="w-full h-full max-h-screen bg-black"
-src={`/api/video/${video.id}`}
+src={videoSrc}
 muted
 onPlay={() => setPlaying(true)}
 onPause={() => setPlaying(false)}
@@ -279,7 +420,16 @@ setCurrent(v.currentTime);
 if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
 if (v.duration && v.currentTime > v.duration - 3) markWatched(video.id);
 }}
-onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+onLoadedMetadata={(e) => {
+setDuration(e.currentTarget.duration);
+const pending = pendingResumeRef.current;
+if (pending) {
+e.currentTarget.currentTime = pending.time;
+if (pending.playing) e.currentTarget.play().catch(() => {});
+pendingResumeRef.current = null;
+setSwitchingAudio(false);
+}
+}}
 onEnded={() => {
 markWatched(video.id);
 if (autonext) playNext();
@@ -290,15 +440,24 @@ onCanPlay={() => setLoading(false)}
 onLoadStart={() => setLoading(true)}
 onSeeking={() => setLoading(true)}
 onSeeked={() => setLoading(false)}
-onClick={handleVideoClick}
-onDoubleClick={toggleFullscreen}
 autoPlay
 playsInline
+>
+{convertibleSubtitles.map((t) => (
+<track
+key={t.index}
+kind="subtitles"
+src={`/api/subtitle/${video.id}?track=${t.index}`}
+srcLang={t.language || "und"}
+label={languageName(t.language, t.title, t.index)}
 />
+))}
+</video>
 {/* Buffering spinner */}
-{loading && (
-<div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+{(loading || switchingAudio) && (
+<div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-2">
 <div className="w-12 h-12 rounded-full border-[3px] border-white/25 border-t-white animate-spin" />
+{switchingAudio && <div className="text-xs text-white/80 bg-black/60 px-2.5 py-1 rounded">Switching audio…</div>}
 </div>
 )}
 {/* Click-to-toggle feedback pulse */}
@@ -316,6 +475,21 @@ className="absolute inset-0 m-auto w-16 h-16 rounded-full bg-black/50 flex items
 <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
 </svg>
 )}
+</div>
+)}
+{/* Double-tap seek feedback — flashes on whichever half was tapped */}
+{seekFeedback && (
+<div
+key={Date.now()}
+className={`absolute inset-y-0 ${
+seekFeedback === "fwd" ? "right-0" : "left-0"
+} w-1/2 flex items-center ${
+seekFeedback === "fwd" ? "justify-end pr-8 sm:pr-16" : "justify-start pl-8 sm:pl-16"
+} pointer-events-none`}
+>
+<div className="flex flex-col items-center gap-1 bg-black/40 rounded-full w-20 h-20 justify-center animate-clickpulse">
+{seekFeedback === "fwd" ? <FwdIcon large /> : <BackIcon large />}
+</div>
 </div>
 )}
 {/* Top bar */}
@@ -376,6 +550,7 @@ className="absolute top-16 right-4 sm:right-6 z-10 w-64 rounded-lg bg-black/90 b
 <Shortcut keys="End" desc="Jump to end" />
 <Shortcut keys="0–9" desc="Jump to 0%–90%" />
 <Shortcut keys="M" desc="Mute / unmute" />
+<Shortcut keys="C" desc="Toggle subtitles" />
 <Shortcut keys="F" desc="Fullscreen" />
 <Shortcut keys="Esc" desc="Close player" />
 </div>
@@ -402,6 +577,15 @@ className="absolute bottom-24 sm:bottom-28 left-4 sm:left-6 flex items-center ga
 )}
 {savedToast && (
 <div className="absolute top-16 right-6 px-3 py-1.5 rounded bg-black/80 text-xs">Position saved</div>
+)}
+{audioSwitchError && (
+<div
+className="absolute top-16 right-6 px-3 py-1.5 rounded bg-red-900/90 text-xs max-w-xs cursor-pointer"
+onClick={() => setAudioSwitchError(null)}
+title="Dismiss"
+>
+{audioSwitchError}
+</div>
 )}
 {/* Bottom controls */}
 <div
@@ -480,6 +664,122 @@ aria-label="Playback speed"
 </option>
 ))}
 </select>
+{video.audioTracks && video.audioTracks.length > 1 && (
+<div className="relative">
+<button
+onClick={() => setAudioMenuOpen((o) => !o)}
+disabled={switchingAudio}
+aria-expanded={audioMenuOpen}
+title="Audio language"
+className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50 focus-ring"
+>
+<AudioIcon />
+<span className="hidden sm:inline">
+{languageName(
+video.audioTracks.find((t) => t.index === audioTrackIndex)?.language ?? null,
+video.audioTracks.find((t) => t.index === audioTrackIndex)?.title ?? null,
+audioTrackIndex
+)}
+</span>
+</button>
+{audioMenuOpen && (
+<div
+onClick={(e) => e.stopPropagation()}
+className="absolute bottom-full mb-2 right-0 w-44 rounded-lg bg-black/95 border border-white/10 py-1.5 text-sm z-20"
+>
+{video.audioTracks.map((t) => (
+<button
+key={t.index}
+onClick={() => selectAudioTrack(t.index)}
+className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/10 ${
+t.index === audioTrackIndex ? "text-accent" : "text-white/90"
+}`}
+>
+{languageName(t.language, t.title, t.index)}
+{t.index === audioTrackIndex && (
+<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+<path d="M20 6 9 17l-5-5" />
+</svg>
+)}
+</button>
+))}
+</div>
+)}
+</div>
+)}
+{(convertibleSubtitles.length > 0 || unconvertibleSubtitles.length > 0) && (
+<div className="relative">
+<button
+onClick={() => setSubtitleMenuOpen((o) => !o)}
+aria-expanded={subtitleMenuOpen}
+title="Subtitles"
+className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 focus-ring"
+>
+<CcIcon />
+<span className="hidden sm:inline">
+{subtitleIndex === null
+? "Off"
+: languageName(
+convertibleSubtitles.find((t) => t.index === subtitleIndex)?.language ?? null,
+convertibleSubtitles.find((t) => t.index === subtitleIndex)?.title ?? null,
+subtitleIndex
+)}
+</span>
+</button>
+{subtitleMenuOpen && (
+<div
+onClick={(e) => e.stopPropagation()}
+className="absolute bottom-full mb-2 right-0 w-52 rounded-lg bg-black/95 border border-white/10 py-1.5 text-sm z-20"
+>
+<button
+onClick={() => {
+setSubtitleIndex(null);
+setSubtitleMenuOpen(false);
+}}
+className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/10 ${
+subtitleIndex === null ? "text-accent" : "text-white/90"
+}`}
+>
+Off
+{subtitleIndex === null && (
+<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+<path d="M20 6 9 17l-5-5" />
+</svg>
+)}
+</button>
+{convertibleSubtitles.map((t) => (
+<button
+key={t.index}
+onClick={() => {
+setSubtitleIndex(t.index);
+setSubtitleMenuOpen(false);
+}}
+className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/10 ${
+t.index === subtitleIndex ? "text-accent" : "text-white/90"
+}`}
+>
+{languageName(t.language, t.title, t.index)}
+{t.index === subtitleIndex && (
+<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+<path d="M20 6 9 17l-5-5" />
+</svg>
+)}
+</button>
+))}
+{unconvertibleSubtitles.map((t) => (
+<div
+key={t.index}
+title="Image-based subtitle format — can't be converted to text captions"
+className="w-full text-left px-3 py-1.5 text-white/30 cursor-not-allowed flex items-center justify-between"
+>
+{languageName(t.language, t.title, t.index)}
+<span className="text-[10px]">unsupported</span>
+</div>
+))}
+</div>
+)}
+</div>
+)}
 <button onClick={handleSavePosition} className="hidden sm:block text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 focus-ring">
 Save
 </button>
@@ -549,18 +849,20 @@ return (
 </svg>
 );
 }
-function BackIcon() {
+function BackIcon({ large = false }: { large?: boolean }) {
+const s = large ? 28 : 18;
 return (
-<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
 <path d="M3 12a9 9 0 1 0 9-9" />
 <path d="M3 5v6h6" />
 <text x="7" y="16" fontSize="7" fill="#fff" stroke="none">10</text>
 </svg>
 );
 }
-function FwdIcon() {
+function FwdIcon({ large = false }: { large?: boolean }) {
+const s = large ? 28 : 18;
 return (
-<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
 <path d="M21 12a9 9 0 1 1-9-9" />
 <path d="M21 5v6h-6" />
 <text x="8" y="16" fontSize="7" fill="#fff" stroke="none">10</text>
@@ -594,6 +896,23 @@ return (
 <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff">
 <path d="M4 9v6h4l5 5V4L8 9H4z" />
 <path d="M16 9l5 6M21 9l-5 6" stroke="#fff" strokeWidth="1.6" />
+</svg>
+);
+}
+function CcIcon() {
+return (
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+<rect x="2.5" y="5" width="19" height="14" rx="2" />
+<path d="M9 10.5c-.5-.7-1.2-1-2-1-1.4 0-2.5 1.1-2.5 2.5S5.6 14.5 7 14.5c.8 0 1.5-.3 2-1" />
+<path d="M17 10.5c-.5-.7-1.2-1-2-1-1.4 0-2.5 1.1-2.5 2.5s1.1 2.5 2.5 2.5c.8 0 1.5-.3 2-1" />
+</svg>
+);
+}
+function AudioIcon() {
+return (
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+<path d="M11 5 6 9H2v6h4l5 4V5Z" />
+<path d="M19 5a11 11 0 0 1 0 14M15.5 8.5a6 6 0 0 1 0 7" />
 </svg>
 );
 }

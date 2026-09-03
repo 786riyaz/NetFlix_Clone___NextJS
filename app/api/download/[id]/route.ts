@@ -14,7 +14,9 @@ return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-const resolved = await resolveVideoPath(params.id);
+const trackParam = req.nextUrl.searchParams.get("track");
+const trackIndex = trackParam !== null ? Number(trackParam) : undefined;
+const resolved = await resolveVideoPath(params.id, trackIndex);
 if (!resolved) return new Response("Not found", { status: 404 });
 const { absPath, ext, downloadName } = resolved;
 let stat;

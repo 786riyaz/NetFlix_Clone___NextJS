@@ -7,7 +7,9 @@ export const dynamic = "force-dynamic";
 
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const resolved = await resolveVideoPath(params.id);
+  const trackParam = req.nextUrl.searchParams.get("track");
+  const trackIndex = trackParam !== null ? Number(trackParam) : undefined;
+  const resolved = await resolveVideoPath(params.id, trackIndex);
   if (!resolved) {
     return new Response("Not found", { status: 404 });
   }
