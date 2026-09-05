@@ -520,7 +520,7 @@ onClose();
 )}
 <button
 onClick={() => setShowShortcuts((s) => !s)}
-className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring"
+className="w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring"
 aria-label="Keyboard shortcuts"
 title="Keyboard shortcuts"
 >
@@ -530,7 +530,7 @@ title="Keyboard shortcuts"
 <path d="M12 17h.01" />
 </svg>
 </button>
-<button onClick={onClose} className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring" aria-label="Close player">
+<button onClick={onClose} className="w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring" aria-label="Close player">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
 <path d="M18 6 6 18M6 6l12 12" />
 </svg>
@@ -594,7 +594,7 @@ showControls ? "opacity-100" : "opacity-0 pointer-events-none"
 }`}
 >
 {/* seek bar */}
-<div className="relative w-full h-3 flex items-center mb-2 group/seek">
+<div className="relative w-full h-8 sm:h-3 flex items-center mb-2 group/seek">
 <div className="absolute w-full h-1 rounded bg-white/20" />
 <div className="absolute h-1 rounded bg-white/35" style={{ width: `${duration ? (buffered / duration) * 100 : 0}%` }} />
 <div className="absolute h-1 rounded bg-accent" style={{ width: `${pct}%` }} />
@@ -605,7 +605,7 @@ max={100}
 step={0.1}
 value={pct}
 onChange={(e) => handleSeek(Number(e.target.value))}
-className="relative w-full h-3 cursor-pointer"
+className="relative w-full h-8 sm:h-3 cursor-pointer"
 aria-label="Seek"
 />
 </div>
@@ -636,7 +636,7 @@ max={1}
 step={0.01}
 value={muted ? 0 : volume}
 onChange={(e) => handleVolume(Number(e.target.value))}
-className="w-14 sm:w-0 sm:group-hover/vol:w-20 transition-all duration-200 overflow-hidden"
+className="h-8 sm:h-auto w-14 sm:w-0 sm:group-hover/vol:w-20 transition-all duration-200 overflow-hidden"
 aria-label="Volume"
 />
 </div>
@@ -671,7 +671,7 @@ onClick={() => setAudioMenuOpen((o) => !o)}
 disabled={switchingAudio}
 aria-expanded={audioMenuOpen}
 title="Audio language"
-className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50 focus-ring"
+className="flex items-center gap-1.5 text-xs px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50 focus-ring"
 >
 <AudioIcon />
 <span className="hidden sm:inline">
@@ -713,7 +713,7 @@ t.index === audioTrackIndex ? "text-accent" : "text-white/90"
 onClick={() => setSubtitleMenuOpen((o) => !o)}
 aria-expanded={subtitleMenuOpen}
 title="Subtitles"
-className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 focus-ring"
+className="flex items-center gap-1.5 text-xs px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded bg-white/10 hover:bg-white/20 focus-ring"
 >
 <CcIcon />
 <span className="hidden sm:inline">
@@ -829,7 +829,7 @@ onClick={onClick}
 disabled={disabled}
 aria-label={label}
 title={label}
-className="w-9 h-9 rounded-full hover:enabled:bg-white/10 disabled:opacity-30 flex items-center justify-center focus-ring shrink-0"
+className="w-11 h-11 sm:w-9 sm:h-9 rounded-full hover:enabled:bg-white/10 disabled:opacity-30 flex items-center justify-center focus-ring shrink-0"
 >
 {children}
 </button>

@@ -120,7 +120,7 @@ className="shrink-0 w-8 h-8 flex items-center justify-center rounded-md bg-white
 onClick={() => setMenuOpen((o) => !o)}
 aria-label="More options"
 aria-expanded={menuOpen}
-className={`shrink-0 w-9 h-9 flex items-center justify-center rounded-md focus-ring ${
+className={`shrink-0 w-11 h-11 flex items-center justify-center rounded-md focus-ring ${
 menuOpen ? "bg-white/20" : "bg-white/10 hover:bg-white/20"
 }`}
 >
@@ -206,13 +206,13 @@ value={search}
 onChange={(e) => onSearch(e.target.value)}
 type="text"
 placeholder="Search"
-className="w-full bg-black/40 border border-white/10 rounded-md pl-3 pr-7 py-1.5 sm:py-1.5 text-sm placeholder:text-muted focus-ring outline-none"
+className="w-full bg-black/40 border border-white/10 rounded-md pl-3 pr-9 py-1.5 sm:py-1.5 text-sm placeholder:text-muted focus-ring outline-none"
 />
 {search && (
 <button
 aria-label="Clear search"
 onClick={() => onSearch("")}
-className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-muted hover:text-white hover:bg-white/10"
+className="absolute right-1 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded text-muted hover:text-white hover:bg-white/10"
 >
 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
 <path d="M6 6l12 12M18 6 6 18" />
@@ -237,7 +237,7 @@ key={o.key}
 onClick={() => onView(o.key)}
 title={o.label}
 aria-pressed={view === o.key}
-className={`w-8 h-8 sm:w-7 sm:h-7 flex items-center justify-center rounded focus-ring transition-colors ${
+className={`w-10 h-10 sm:w-7 sm:h-7 flex items-center justify-center rounded focus-ring transition-colors ${
 view === o.key ? "bg-white/15 text-white" : "text-muted hover:text-white hover:bg-white/5"
 }`}
 >

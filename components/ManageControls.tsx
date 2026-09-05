@@ -58,7 +58,7 @@ pushToast(`Deleted "${video.name}".`, "success");
 }
 // Touch targets are bumped up on small screens (mobile has no hover to
 // compensate for a too-small tap area) and stay compact on desktop.
-const dim = size === "sm" ? "w-8 h-8 sm:w-6 sm:h-6" : "w-9 h-9 sm:w-7 sm:h-7";
+const dim = size === "sm" ? "w-11 h-11 sm:w-6 sm:h-6" : "w-11 h-11 sm:w-7 sm:h-7";
 const iconSize = size === "sm" ? 13 : 14;
 return (
 <>

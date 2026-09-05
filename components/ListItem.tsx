@@ -4,8 +4,7 @@ import type { VideoItem } from "@/lib/types";
 import { fmtDuration, fmtSize, fmtDate } from "@/lib/format";
 import { getSavedTime, isWatched } from "@/lib/progress";
 import OptimizeBadge from "./OptimizeBadge";
-import ManageControls from "./ManageControls";
-import DownloadButton from "./DownloadButton";
+import VideoActionsMenu from "./VideoActionsMenu";
 export default function ListItem({
 video,
 onPlay,
@@ -103,10 +102,13 @@ imgLoaded ? "opacity-100" : "opacity-0"
 <span className="w-16 text-right">{fmtSize(video.size)}</span>
 <span className="w-20 text-right">{fmtDate(video.mtimeMs)}</span>
 </div>
-{superAdmin && onRenamed && onDeleted && (
-<ManageControls video={video} onRenamed={onRenamed} onDeleted={onDeleted} folderPaths={folderPaths} />
-)}
-<DownloadButton videoId={video.id} />
+<VideoActionsMenu
+video={video}
+superAdmin={superAdmin}
+onRenamed={onRenamed}
+onDeleted={onDeleted}
+folderPaths={folderPaths}
+/>
 </div>
 );
 }

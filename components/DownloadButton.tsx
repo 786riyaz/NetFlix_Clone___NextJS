@@ -6,7 +6,7 @@ size = "sm",
 videoId: string;
 size?: "sm" | "md";
 }) {
-const dim = size === "sm" ? "w-8 h-8 sm:w-6 sm:h-6" : "w-9 h-9 sm:w-7 sm:h-7";
+const dim = size === "sm" ? "w-11 h-11 sm:w-6 sm:h-6" : "w-11 h-11 sm:w-7 sm:h-7";
 const iconSize = size === "sm" ? 13 : 14;
 return (
 <a
