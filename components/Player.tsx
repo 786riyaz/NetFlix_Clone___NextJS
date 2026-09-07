@@ -37,6 +37,10 @@ const queueIdx = queue.findIndex((v) => v.id === video.id);
 const prevVideo = queueIdx > 0 ? queue[queueIdx - 1] : null;
 const nextVideo = queueIdx >= 0 && queueIdx < queue.length - 1 ? queue[queueIdx + 1] : null;
 const videoRef = useRef<HTMLVideoElement>(null);
+// Used for fullscreen specifically — needs to be the whole player (video +
+// controls), not just videoRef's parent, or entering fullscreen would hide
+// the controls entirely instead of just filling the screen with them.
+const playerRootRef = useRef<HTMLDivElement>(null);
 // Audio track selection. Switching tracks means swapping the <video> src
 // (see videoSrc below) — the browser reloads the resource, so we stash
 // where playback was and resume there once the new source is ready,
@@ -56,6 +60,21 @@ const convertibleSubtitles = video.subtitleTracks?.filter((t) => t.convertible) 
 const unconvertibleSubtitles = video.subtitleTracks?.filter((t) => !t.convertible) ?? [];
 const [subtitleIndex, setSubtitleIndex] = useState<number | null>(null);
 const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
+// The player is a `fixed` full-screen overlay, which only covers the page
+// visually — without this, the page underneath stays scrollable the whole
+// time the player is open. Scrolling it (even by accident, e.g. a stray
+// wheel/trackpad gesture) is invisible while the player is up, but shows
+// up as a surprising scroll-position jump on the grid behind it the
+// moment the player closes. Locked here for the player's whole lifetime
+// (mount to unmount), not per-video, so switching tracks via Next/Prev
+// doesn't flicker it on and off.
+useEffect(() => {
+const original = document.body.style.overflow;
+document.body.style.overflow = "hidden";
+return () => {
+document.body.style.overflow = original;
+};
+}, []);
 useEffect(() => {
 setAudioTrackIndex(0);
 setAudioMenuOpen(false);
@@ -284,7 +303,7 @@ setMuted(next);
 async function toggleFullscreen() {
 try {
 if (!document.fullscreenElement) {
-await videoRef.current?.parentElement?.requestFullscreen();
+await playerRootRef.current?.requestFullscreen();
 } else {
 await document.exitFullscreen();
 }
@@ -352,6 +371,15 @@ if (convertibleSubtitles.length > 0) {
 setSubtitleIndex((cur) => (cur === null ? convertibleSubtitles[0].index : null));
 }
 break;
+case "b":
+case "B":
+if (video.audioTracks && video.audioTracks.length > 1) {
+const tracks = video.audioTracks;
+const curIdx = tracks.findIndex((t) => t.index === audioTrackIndex);
+const nextTrack = tracks[(curIdx + 1) % tracks.length];
+selectAudioTrack(nextTrack.index);
+}
+break;
 case "n":
 case "N":
 playNext();
@@ -395,10 +423,11 @@ break;
 window.addEventListener("keydown", onKey);
 return () => window.removeEventListener("keydown", onKey);
 // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [showShortcuts, video.id, nextVideo, prevVideo, convertibleSubtitles.length]);
+}, [showShortcuts, video.id, nextVideo, prevVideo, convertibleSubtitles.length, audioTrackIndex]);
 const pct = duration ? (current / duration) * 100 : 0;
 return (
 <div
+ref={playerRootRef}
 className="fixed inset-0 z-50 bg-black flex flex-col"
 onMouseMove={resetHideTimer}
 onClick={resetHideTimer}
@@ -492,8 +521,16 @@ seekFeedback === "fwd" ? "justify-end pr-8 sm:pr-16" : "justify-start pl-8 sm:pl
 </div>
 </div>
 )}
+</div>
+{/* Top bar, center play button, toasts, and bottom controls all live
+outside the click-to-play/pause video area on purpose — they used to
+be nested inside it, which meant every click on any control (mute,
+fullscreen, seek, skip, etc) bubbled up and ALSO re-triggered the
+video's own click-to-toggle-play/double-click-to-seek behavior,
+fighting with whatever the button itself just did. */}
 {/* Top bar */}
 <div
+onClick={(e) => e.stopPropagation()}
 className={`absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-6 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 ${
 showControls ? "opacity-100" : "opacity-0 pointer-events-none"
 }`}
@@ -551,6 +588,7 @@ className="absolute top-16 right-4 sm:right-6 z-10 w-64 rounded-lg bg-black/90 b
 <Shortcut keys="0–9" desc="Jump to 0%–90%" />
 <Shortcut keys="M" desc="Mute / unmute" />
 <Shortcut keys="C" desc="Toggle subtitles" />
+<Shortcut keys="B" desc="Cycle audio language" />
 <Shortcut keys="F" desc="Fullscreen" />
 <Shortcut keys="Esc" desc="Close player" />
 </div>
@@ -569,19 +607,25 @@ aria-label="Play"
 )}
 {muted && playing && (
 <button
-onClick={toggleMute}
+onClick={(e) => {
+e.stopPropagation();
+toggleMute();
+}}
 className="absolute bottom-24 sm:bottom-28 left-4 sm:left-6 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 hover:bg-black/80 text-xs sm:text-sm focus-ring transition-opacity duration-300"
 >
 <MuteIcon /> Tap to unmute
 </button>
 )}
 {savedToast && (
-<div className="absolute top-16 right-6 px-3 py-1.5 rounded bg-black/80 text-xs">Position saved</div>
+<div onClick={(e) => e.stopPropagation()} className="absolute top-16 right-6 px-3 py-1.5 rounded bg-black/80 text-xs">Position saved</div>
 )}
 {audioSwitchError && (
 <div
 className="absolute top-16 right-6 px-3 py-1.5 rounded bg-red-900/90 text-xs max-w-xs cursor-pointer"
-onClick={() => setAudioSwitchError(null)}
+onClick={(e) => {
+e.stopPropagation();
+setAudioSwitchError(null);
+}}
 title="Dismiss"
 >
 {audioSwitchError}
@@ -589,6 +633,7 @@ title="Dismiss"
 )}
 {/* Bottom controls */}
 <div
+onClick={(e) => e.stopPropagation()}
 className={`absolute bottom-0 left-0 right-0 px-4 sm:px-6 pb-4 sm:pb-5 pt-10 bg-gradient-to-t from-black/90 to-transparent transition-opacity duration-300 ${
 showControls ? "opacity-100" : "opacity-0 pointer-events-none"
 }`}
@@ -795,9 +840,8 @@ Reset
 </div>
 </div>
 </div>
-</div>
 {nextVideo && (
-<div className="absolute bottom-24 sm:bottom-28 right-4 sm:right-6 text-xs text-muted max-w-[50%] truncate">
+<div onClick={(e) => e.stopPropagation()} className="absolute bottom-24 sm:bottom-28 right-4 sm:right-6 text-xs text-muted max-w-[50%] truncate">
 Up next: <span className="text-white">{nextVideo.name}</span>
 </div>
 )}
