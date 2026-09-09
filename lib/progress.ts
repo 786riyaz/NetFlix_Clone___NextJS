@@ -32,6 +32,19 @@ export function setVolume(v: number) {
 if (typeof window === "undefined") return;
 window.localStorage.setItem("vault:volume", String(v));
 }
+// Every video still has to *start* muted (browsers block unmuted autoplay
+// without a prior gesture) — but once someone unmutes once, every video
+// after that should just start unmuted at their preferred volume instead
+// of forcing them to hit unmute again each time.
+export function getMutePreference(): boolean {
+if (typeof window === "undefined") return true;
+const v = window.localStorage.getItem("vault:muted");
+return v === null ? true : v === "true";
+}
+export function setMutePreference(muted: boolean) {
+if (typeof window === "undefined") return;
+window.localStorage.setItem("vault:muted", String(muted));
+}
 export function getAllProgressIds(): string[] {
 if (typeof window === "undefined") return [];
 const ids: string[] = [];

@@ -9,6 +9,8 @@ clearProgress,
 markWatched,
 getVolume,
 setVolume as persistVolume,
+getMutePreference,
+setMutePreference,
 } from "@/lib/progress";
 import ManageControls from "./ManageControls";
 import DownloadButton from "./DownloadButton";
@@ -179,9 +181,23 @@ v.currentTime = startAt || 0;
 const vol = getVolume();
 v.volume = vol || 1;
 setVolumeState(vol || 1);
+// Every video still has to start muted — browsers block unmuted
+// autoplay without a prior user gesture, and forcing this wrong would
+// make autoplay silently fail. But right after playback actually
+// starts (which itself doesn't need a fresh gesture once the video is
+// already rolling), we honor whatever the person chose last time —
+// so once they've unmuted once, every video after that just plays
+// with sound already on instead of making them hit unmute every time.
 v.muted = true;
 setMuted(true);
-v.play().catch(() => {});
+v.play()
+.then(() => {
+if (!getMutePreference()) {
+v.muted = false;
+setMuted(false);
+}
+})
+.catch(() => {});
 }, [video.id]);
 useEffect(() => {
 autosaveTimer.current = setInterval(() => {
@@ -250,10 +266,26 @@ const pendingClicks = useRef(0);
 function handleVideoAreaClick(e: React.MouseEvent<HTMLDivElement>) {
 const clientX = e.clientX;
 const rect = e.currentTarget.getBoundingClientRect();
+// On touch devices specifically, a tap while controls are hidden should
+// just reveal them — not also toggle play/pause. Someone reaching for a
+// specific control (mute, subtitles, fullscreen, whatever) shouldn't have
+// their very first tap accidentally pause the video before they can even
+// see the button they meant to press. Once controls are visible, tapping
+// the video area goes back to normal (toggles play, same as a second
+// tap on a real button would). Desktop/mouse is untouched — coarse
+// pointer detection means this whole branch never applies there.
+const isTouch = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+const firstTouchRevealOnly = isTouch && !showControls;
 pendingClicks.current += 1;
 if (pendingClicks.current === 1) {
 clickTimer.current = setTimeout(() => {
-if (pendingClicks.current === 1) handleVideoClick();
+if (pendingClicks.current === 1) {
+if (firstTouchRevealOnly) {
+resetHideTimer();
+} else {
+handleVideoClick();
+}
+}
 pendingClicks.current = 0;
 }, 280);
 } else {
@@ -285,6 +317,7 @@ v.muted = val === 0;
 setVolumeState(val);
 setMuted(val === 0);
 persistVolume(val);
+setMutePreference(val === 0);
 }
 function toggleMute() {
 const v = videoRef.current;
@@ -299,6 +332,7 @@ setVolumeState(1);
 persistVolume(1);
 }
 setMuted(next);
+setMutePreference(next);
 }
 async function toggleFullscreen() {
 try {

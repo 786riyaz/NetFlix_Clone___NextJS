@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Local Netflix-Style Video App (All Features)</title>
+  <meta name="theme-color" content="#0b0b0d">
+  <style>
+    :root{
+      --bg:#0b0b0d; --card:#111; --muted:#9aa0a6; --accent:#e50914; --glass:rgba(255,255,255,0.03);
+      --radius:12px;
+    }
+    [data-theme='light']{ --bg:#f6f7f9; --card:#fff; --muted:#667; --accent:#e50914; color:#111 }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;font-family:Inter,system-ui,Arial;background:var(--bg);color:var(--color,#fff);-webkit-font-smoothing:antialiased}
+
+    header{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.03);background:linear-gradient(0deg,transparent,rgba(0,0,0,0.02))}
+    header h1{margin:0;font-size:18px}
+
+    .controls{margin-left:auto;display:flex;gap:10px;align-items:center}
+    .btn{background:var(--accent);border:none;color:#fff;padding:8px 12px;border-radius:10px;cursor:pointer}
+    .muted{color:var(--muted);font-size:13px}
+    input[type=text]{padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+    select{padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.04);color:inherit}
+
+    main{padding:18px}
+    .section{margin-bottom:28px}
+    .section h2{margin:0 0 8px 0;font-size:16px}
+
+    /* horizontal carousel */
+    .carousel{display:flex;gap:12px;overflow-x:auto;padding-bottom:6px;padding-left:6px}
+    .carousel::-webkit-scrollbar{height:10px}
+    .carousel::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.06);border-radius:8px}
+    .card{min-width:220px;background:var(--card);border-radius:var(--radius);overflow:hidden;border:1px solid rgba(255,255,255,0.03);cursor:pointer;transition:transform .18s,box-shadow .18s}
+    .card:hover{transform:translateY(-6px);box-shadow:0 10px 30px rgba(0,0,0,0.5)}
+    .thumb{height:130px;background:#000;display:flex;align-items:center;justify-content:center;position:relative}
+    .thumb img, .thumb video{width:100%;height:100%;object-fit:cover;display:block}
+    .meta{padding:10px}
+    .meta .title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .meta .sub{font-size:12px;color:var(--muted)}
+    .progressRing{position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,0.5);padding:6px;border-radius:50%;font-size:12px;color:#fff}
+
+    /* grid fallback */    
+    #grid{display:block}
+    .folderGroup{border:1px solid rgba(255,255,255,0.06);border-radius:var(--radius);margin-bottom:12px;background:var(--card)}
+    .folderHeader{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;font-weight:600}
+    .folderHeader .count{margin-left:auto;color:var(--muted);font-size:12px}
+    .folderChildren{padding:4px 0 8px 16px}
+    .folderVideos{display:flex;flex-wrap:wrap;gap:12px;padding:8px 12px}
+
+    /* Modal player */
+    #playerModal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:linear-gradient(rgba(0,0,0,0.6),rgba(0,0,0,0.8));padding:18px}
+    .playerCard{width:min(1100px,96%);background:var(--card);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:12px}
+    #player{width:100%;height:580px;background:#000;border-radius:8px}
+    .playerTop{display:flex;align-items:center;justify-content:space-between}
+    .controlsRow{display:flex;gap:10px;align-items:center}
+    .timeline{width:100%}
+
+    .small{font-size:12px;color:var(--muted)}
+    .badge{background:var(--glass);padding:6px 8px;border-radius:8px;font-size:12px}
+
+    /* settings modal */
+    #settings{position:fixed;right:20px;top:70px;width:320px;background:var(--card);padding:14px;border-radius:10px;border:1px solid rgba(255,255,255,0.03);display:none}
+
+    footer{padding:12px 18px;border-top:1px solid rgba(255,255,255,0.03);color:var(--muted);font-size:13px}
+
+    /* responsive */
+    @media (max-width:800px){ #player{height:320px} .thumb{height:110px}}
+  </style>
+</head>
+<body data-theme="dark">
+  <header>
+    <h1>🎬 Local Netflix-Style Video App — All Features</h1>
+
+    <div class="controls">
+      <label class="btn" for="folderPicker">Select Folder</label>
+      <input id="folderPicker" type="file" webkitdirectory directory multiple style="display:none" />
+
+      <input id="search" type="text" placeholder="Search videos or folders" />
+      <select id="sort"><option value="name">Name</option><option value="date">Date</option><option value="size">Size</option></select>
+
+      <button id="themeBtn" class="btn">Theme</button>
+      <button id="settingsBtn" class="btn">Settings</button>
+      <button id="exportBtn" class="btn">Export Progress</button>
+      <input id="importFile" type="file" accept="application/json" style="display:none" />
+    </div>
+  </header>
+
+  <main>
+    <section class="section" id="continueSection">
+      <h2>Continue Watching</h2>
+      <div class="carousel" id="continueRow"> <div class="muted">No videos yet — pick a folder to index.</div></div>
+    </section>
+
+    <section class="section">
+      <h2>Recently Added</h2>
+      <div class="carousel" id="recentRow"></div>
+    </section>
+
+    <section class="section">
+      <h2>All Videos</h2>
+      <div id="grid"></div>
+    </section>
+  </main>
+
+  <div id="playerModal">
+    <div class="playerCard">
+      <div class="playerTop">
+        <div>
+          <div id="playerTitle" style="font-weight:700"></div>
+          <div class="small" id="playerFolder"></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn" id="pipBtn">PIP</button>
+          <button class="btn" id="fsBtn">Fullscreen</button>
+          <button class="btn" id="closeBtn">Close</button>
+        </div>
+      </div>
+
+      <video id="player" controls playsinline preload="metadata"></video>
+
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn" id="prevBtn">⏮ 10s</button>
+        <button class="btn" id="playPause">Play</button>
+        <button class="btn" id="nextBtn">10s ⏭</button>
+        <input id="timeline" type="range" min="0" max="100" value="0" class="timeline" />
+        <div class="small" id="timeInfo">0:00 / 0:00</div>
+        <input id="volume" type="range" min="0" max="1" step="0.01" value="1" style="width:100px" />
+        <select id="speed"><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option></select>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn" id="savePos">Save Position</button>
+        <button class="btn" id="resetPos">Reset Position</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings">
+    <h3 style="margin:0 0 8px 0">Settings</h3>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <label><input type="checkbox" id="hoverPreviewCheckbox" checked /> Hover preview (muted)</label>
+      <label>Thumbnail quality: <select id="thumbQuality"><option value="320">Low</option><option value="640" selected>Medium</option><option value="1280">High</option></select></label>
+      <label>Autosave interval (sec): <input id="autosaveInterval" type="number" min="1" value="5" style="width:80px"/></label>
+      <label><input type="checkbox" id="autonext" checked /> Autoplay next in folder</label>
+      <button id="downloadPWA" class="btn">Download PWA files</button>
+    </div>
+  </div>
+
+  <footer>Built locally — videos never leave your machine. Uses browser localStorage to save progress.</footer>
+
+  <script>
+    // --- State ---
+    const folderPicker = document.getElementById('folderPicker');
+    const grid = document.getElementById('grid');
+    const recentRow = document.getElementById('recentRow');
+    const continueRow = document.getElementById('continueRow');
+    const search = document.getElementById('search');
+    const sort = document.getElementById('sort');
+    const themeBtn = document.getElementById('themeBtn');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsPanel = document.getElementById('settings');
+    const hoverPreviewCheckbox = document.getElementById('hoverPreviewCheckbox');
+    const thumbQuality = document.getElementById('thumbQuality');
+    const autosaveIntervalInput = document.getElementById('autosaveInterval');
+    const autonextCheckbox = document.getElementById('autonext');
+
+    const playerModal = document.getElementById('playerModal');
+    const player = document.getElementById('player');
+    const playerTitle = document.getElementById('playerTitle');
+    const playerFolder = document.getElementById('playerFolder');
+    const playPause = document.getElementById('playPause');
+    const timeline = document.getElementById('timeline');
+    const timeInfo = document.getElementById('timeInfo');
+    const volume = document.getElementById('volume');
+    const speed = document.getElementById('speed');
+    const fsBtn = document.getElementById('fsBtn');
+    const pipBtn = document.getElementById('pipBtn');
+    const closeBtn = document.getElementById('closeBtn');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const savePos = document.getElementById('savePos');
+    const resetPos = document.getElementById('resetPos');
+
+    const exportBtn = document.getElementById('exportBtn');
+    const importFile = document.getElementById('importFile');
+    const downloadPWA = document.getElementById('downloadPWA');
+
+    let videos = []; // {file, url, name, folder, size, lastModified, thumb, key, watched}
+    let filtered = [];
+    let current = null; // current video object
+    let autosaveTimer = null;
+
+    const videoExt = ['mp4','webm','ogg','mov','mkv','avi','wmv','flv'];
+
+    // helpers
+    const fmtTime = s => { if(!isFinite(s)) return '0:00'; s=Math.floor(s); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
+    function makeKey(f){ return 'vidpos:'+ (f.webkitRelativePath||f.name) + ':' + f.size + ':' + f.lastModified; }
+
+    // load saved theme
+    document.body.setAttribute('data-theme', localStorage.getItem('theme')||'dark');
+
+    // thumbnail generation — lower quality when asked
+    async function generateThumbnail(url, quality){
+      return new Promise(resolve=>{
+        const v = document.createElement('video');
+        v.preload='metadata'; v.muted=true; v.playsInline=true; v.src=url;
+        const clean = ()=>{ try{ v.src=''; v.remove(); }catch(e){} };
+        v.addEventListener('loadedmetadata', ()=>{
+          const seekTo = Math.min(2, v.duration/3 || 0);
+          v.currentTime = seekTo;
+          v.addEventListener('seeked', ()=>{
+            try{
+              const c = document.createElement('canvas');
+              const w = Math.min(quality, v.videoWidth || quality);
+              const h = Math.floor(w * (v.videoHeight/v.videoWidth || 9/16));
+              c.width = w; c.height = h;
+              const ctx = c.getContext('2d');
+              ctx.drawImage(v,0,0,w,h);
+              const data = c.toDataURL('image/jpeg', 0.7);
+              clean(); resolve(data);
+            }catch(e){ clean(); resolve(null); }
+          }, {once:true});
+        });
+        v.addEventListener('error', ()=>{ clean(); resolve(null); });
+      });
+    }
+
+    // create card element
+    function createCard(v){
+      const div = document.createElement('div'); div.className='card';
+      div.innerHTML = `
+        <div class="thumb" data-key="${v.key}">${v.thumb? `<img src="${v.thumb}"/>` : '<span class="muted">No preview</span>'}
+          <div class="progressRing" title="progress">${v.watched? '✓' : (getSavedTime(v.key)? Math.round(getSavedTime(v.key)/ (v.duration||1) *100) +'%' : '')}</div>
+        </div>
+        <div class="meta"><div class="title">${v.name}</div><div class="sub">${v.folder}</div></div>
+      `;
+
+      // hover preview video element
+      const thumbEl = div.querySelector('.thumb');
+      if(hoverPreviewCheckbox.checked){
+        thumbEl.addEventListener('mouseenter', async ()=>{
+          if(!v.previewPlaying){
+            const vid = document.createElement('video'); vid.muted=true; vid.playsInline=true; vid.loop=true; vid.src=v.url; vid.currentTime=1; vid.style.width='100%'; vid.style.height='100%';
+            thumbEl.innerHTML=''; thumbEl.appendChild(vid); try{ await vid.play(); v.previewPlaying=vid; }catch(e){}
+          }
+        });
+        thumbEl.addEventListener('mouseleave', ()=>{
+          if(v.previewPlaying){ try{ v.previewPlaying.pause(); v.previewPlaying.remove(); }catch(e){} v.previewPlaying=null; thumbEl.innerHTML = v.thumb? `<img src='${v.thumb}'/>` : '<span class="muted">No preview</span>' ; }
+        });
+      }
+
+      // click to play full
+      div.addEventListener('click', ()=> openPlayer(v));
+      return div;
+    }
+
+    // render lists
+    function buildFolderTree(list){
+      const root={name:'/',path:'/',children:new Map(),videos:[]};
+      list.forEach(v=>{
+        const segs=(v.folder||'/').split('/').filter(s=>s);
+        let node=root; let p='';
+        segs.forEach(s=>{
+          p = p ? (p + '/' + s) : s;
+          let child=node.children.get(s);
+          if(!child){ child={name:s,path:p,children:new Map(),videos:[]}; node.children.set(s,child); }
+          node=child;
+        });
+        node.videos.push(v);
+      });
+      return root;
+    }
+    function renderFolderNode(node, container){
+      const children=[...node.children.values()].sort((a,b)=> a.name.localeCompare(b.name));
+      children.forEach(child=>{
+        const group=document.createElement('div'); group.className='folderGroup';
+        const header=document.createElement('div'); header.className='folderHeader';
+        const openKey='folderOpen:'+child.path;
+        const isOpen=localStorage.getItem(openKey)!== '0';
+        const arrow=document.createElement('span'); arrow.textContent=isOpen? '▾' : '▸';
+        const title=document.createElement('span'); title.textContent=child.name;
+        const count=document.createElement('span'); count.className='count'; count.textContent=String(child.videos.length);
+        header.appendChild(arrow); header.appendChild(title); header.appendChild(count);
+        const body=document.createElement('div');
+        body.style.display=isOpen? 'block' : 'none';
+        const vids=document.createElement('div'); vids.className='folderVideos';
+        const s=sort.value;
+        const vidsSorted=[...child.videos].sort((a,b)=>{ if(s==='name') return a.name.localeCompare(b.name); if(s==='date') return b.lastModified - a.lastModified; if(s==='size') return b.size - a.size; return 0; });
+        vidsSorted.forEach(v=> vids.appendChild(createCard(v)));
+        const kids=document.createElement('div'); kids.className='folderChildren';
+        body.appendChild(vids); body.appendChild(kids);
+        header.addEventListener('click', ()=>{ const cur=body.style.display==='none'; body.style.display=cur? 'block':'none'; arrow.textContent=cur? '▾':'▸'; localStorage.setItem(openKey, cur? '1':'0'); });
+        group.appendChild(header); group.appendChild(body);
+        container.appendChild(group);
+        renderFolderNode(child, kids);
+      });
+    }
+    function renderAll(){
+      grid.innerHTML=''; recentRow.innerHTML=''; continueRow.innerHTML='';
+      const byDate = [...videos].sort((a,b)=> b.lastModified - a.lastModified);
+      byDate.slice(0,20).forEach(v=> recentRow.appendChild(createCard(v)));
+      const cont = videos.filter(v=>{ const t=getSavedTime(v.key); return t && t>10 && t < (v.duration-5 || Infinity); });
+      if(cont.length===0) continueRow.innerHTML = '<div class="muted">No videos to continue — watch something then come back.</div>';
+      else cont.forEach(v=> continueRow.appendChild(createCard(v)));
+      const tree=buildFolderTree(videos);
+      if(tree.videos.length){
+        const group=document.createElement('div'); group.className='folderGroup';
+        const header=document.createElement('div'); header.className='folderHeader';
+        const openKey='folderOpen:/';
+        const isOpen=localStorage.getItem(openKey)!== '0';
+        const arrow=document.createElement('span'); arrow.textContent=isOpen? '▾' : '▸';
+        const title=document.createElement('span'); title.textContent='/';
+        const count=document.createElement('span'); count.className='count'; count.textContent=String(tree.videos.length);
+        header.appendChild(arrow); header.appendChild(title); header.appendChild(count);
+        const body=document.createElement('div'); body.style.display=isOpen? 'block':'none';
+        const vids=document.createElement('div'); vids.className='folderVideos';
+        const s=sort.value;
+        const vidsSorted=[...tree.videos].sort((a,b)=>{ if(s==='name') return a.name.localeCompare(b.name); if(s==='date') return b.lastModified - a.lastModified; if(s==='size') return b.size - a.size; return 0; });
+        vidsSorted.forEach(v=> vids.appendChild(createCard(v)));
+        const kids=document.createElement('div'); kids.className='folderChildren';
+        body.appendChild(vids); body.appendChild(kids);
+        header.addEventListener('click', ()=>{ const cur=body.style.display==='none'; body.style.display=cur? 'block':'none'; arrow.textContent=cur? '▾':'▸'; localStorage.setItem(openKey, cur? '1':'0'); });
+        group.appendChild(header); group.appendChild(body);
+        grid.appendChild(group);
+      }
+      renderFolderNode(tree, grid);
+    }
+
+    // open player
+    function openPlayer(v){
+      current = v; playerModal.style.display='flex'; playerTitle.textContent = v.name; playerFolder.textContent = v.folder; player.src = v.url; player.currentTime = getSavedTime(v.key) || 0; player.playbackRate = 1; player.volume = Number(localStorage.getItem('lastVolume')||1); volume.value = player.volume; player.play();
+      startAutosave();
+    }
+
+    function closePlayer(){ player.pause(); player.src=''; playerModal.style.display='none'; stopAutosave(); renderAll(); }
+
+    // saved time helpers
+    function getSavedTime(key){ const t = localStorage.getItem(key); return t? Number(t) : 0; }
+    function setSavedTime(key, t){ localStorage.setItem(key, String(t)); }
+    function markWatched(key){ localStorage.setItem(key+':watched','1'); }
+    function isWatched(key){ return localStorage.getItem(key+':watched') === '1'; }
+
+    // autosave during playback
+    function startAutosave(){ stopAutosave(); const interval = Math.max(1, Number(autosaveIntervalInput.value) || 5)*1000; autosaveTimer = setInterval(()=>{ if(current) setSavedTime(current.key, player.currentTime); localStorage.setItem('lastVolume', player.volume); }, interval); }
+    function stopAutosave(){ if(autosaveTimer) clearInterval(autosaveTimer); autosaveTimer = null; }
+
+    // player events
+    player.addEventListener('timeupdate', ()=>{
+      const pct = player.duration? (player.currentTime/player.duration)*100 : 0; timeline.value = pct; timeInfo.textContent = fmtTime(player.currentTime) + ' / ' + fmtTime(player.duration);
+      // if near end -> mark watched
+      if(player.duration && player.currentTime > player.duration - 5){ markWatched(current.key); current.watched = true; }
+    });
+    player.addEventListener('loadedmetadata', ()=>{ current.duration = player.duration; renderAll(); });
+    playPause.addEventListener('click', ()=>{ if(player.paused) player.play(); else player.pause(); });
+    player.addEventListener('play', ()=> playPause.textContent='Pause');
+    player.addEventListener('pause', ()=> playPause.textContent='Play');
+
+    timeline.addEventListener('input', ()=>{ if(player.duration) player.currentTime = (timeline.value/100)*player.duration; });
+    volume.addEventListener('input', ()=>{ player.volume = Number(volume.value); localStorage.setItem('lastVolume', player.volume); });
+    speed.addEventListener('change', ()=> player.playbackRate = Number(speed.value));
+    prevBtn.addEventListener('click', ()=> player.currentTime = Math.max(0, player.currentTime - 10));
+    nextBtn.addEventListener('click', ()=> player.currentTime = Math.min(player.duration || player.currentTime + 10, player.currentTime + 10));
+
+    fsBtn.addEventListener('click', async ()=>{ try{ if(!document.fullscreenElement) await document.documentElement.requestFullscreen(); else await document.exitFullscreen(); }catch(e){} });
+    pipBtn.addEventListener('click', async ()=>{ try{ await player.requestPictureInPicture(); }catch(e){ alert('PIP not available in this browser'); } });
+    closeBtn.addEventListener('click', closePlayer);
+
+    savePos.addEventListener('click', ()=>{ if(current) { setSavedTime(current.key, player.currentTime); alert('Position saved'); renderAll(); } });
+    resetPos.addEventListener('click', ()=>{ if(current){ localStorage.removeItem(current.key); localStorage.removeItem(current.key+':watched'); alert('Progress reset'); current.watched = false; renderAll(); } });
+
+    // keyboard shortcuts
+    document.addEventListener('keydown', (e)=>{
+      if(playerModal.style.display==='flex'){
+        if(e.key===' ') { e.preventDefault(); if(player.paused) player.play(); else player.pause(); }
+        if(e.key==='ArrowRight') player.currentTime += 10;
+        if(e.key==='ArrowLeft') player.currentTime -= 10;
+        if(e.key==='f') fsBtn.click();
+      }
+    });
+
+    // export / import watch positions (JSON)
+    exportBtn.addEventListener('click', ()=>{
+      const data = {};
+      videos.forEach(v=>{ const t = getSavedTime(v.key); if(t) data[v.key] = {time:t, watched: isWatched(v.key)}; });
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='video-progress.json'; a.click(); URL.revokeObjectURL(url);
+    });
+
+    importFile.addEventListener('change', (e)=>{
+      const f=e.target.files[0]; if(!f) return; const reader=new FileReader(); reader.onload=()=>{ try{ const obj = JSON.parse(reader.result); Object.keys(obj).forEach(k=>{ localStorage.setItem(k, String(obj[k].time)); if(obj[k].watched) localStorage.setItem(k+':watched','1'); }); alert('Imported progress'); renderAll(); }catch(e){ alert('Invalid JSON'); } }; reader.readAsText(f);
+    });
+
+    // settings & theme
+    themeBtn.addEventListener('click', ()=>{ const cur = document.body.getAttribute('data-theme')==='dark' ? 'light' : 'dark'; document.body.setAttribute('data-theme', cur); localStorage.setItem('theme', cur); });
+    settingsBtn.addEventListener('click', ()=> settingsPanel.style.display = settingsPanel.style.display==='none' || settingsPanel.style.display==='' ? 'block' : 'none');
+
+    // download PWA files (manifest and service worker)
+    const manifestJSON = {
+      name: 'Local Video App', short_name:'LocalVideos', start_url:'.', display:'standalone', background_color:'#0b0b0d', theme_color:'#0b0b0d', icons:[{src:'icons/icon-192.png',sizes:'192x192',type:'image/png'},{src:'icons/icon-512.png',sizes:'512x512',type:'image/png'}]
+    };
+    const swJS = `self.addEventListener('install', e=>{ self.skipWaiting(); }); self.addEventListener('activate', e=>{ clients.claim(); }); self.addEventListener('fetch', e=>{ /* App shell offline caching can be added here */ });`;
+
+    downloadPWA.addEventListener('click', ()=>{
+      // manifest
+      const mblob = new Blob([JSON.stringify(manifestJSON, null,2)], {type:'application/json'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(mblob); a.download='manifest.json'; a.click();
+      // sw
+      const sblob = new Blob([swJS], {type:'application/javascript'});
+      const b=document.createElement('a'); b.href=URL.createObjectURL(sblob); b.download='service-worker.js'; b.click();
+      alert('Downloaded manifest.json and service-worker.js. Place them alongside your app and register the service worker in production.');
+    });
+
+    // Helper: revoke URLs on unload
+    window.addEventListener('beforeunload', ()=> videos.forEach(v=> URL.revokeObjectURL(v.url)));
+
+    // Handle folder picker
+    folderPicker.addEventListener('change', async ()=>{
+      const files = Array.from(folderPicker.files);
+      const vidFiles = files.filter(f=> videoExt.includes((f.name.split('.').pop()||'').toLowerCase()));
+      videos = await Promise.all(vidFiles.map(async f=>{
+        const url = URL.createObjectURL(f);
+        const folder = (f.webkitRelativePath || f.name).replace(/[^\/]+$/,'') || '/';
+        const name = f.name;
+        const key = makeKey(f);
+        const thumb = await generateThumbnail(url, Number(thumbQuality.value));
+        const watched = localStorage.getItem(key+':watched')==='1';
+        const duration = 0; // will fill after metadata loads
+        return {file:f,url,name,folder,size:f.size,lastModified:f.lastModified,thumb,key,watched,duration};
+      }));
+
+      // load durations by creating a video element per file (async)
+      await Promise.all(videos.map(v=> new Promise(res=>{
+        const t = document.createElement('video'); t.preload='metadata'; t.src = v.url; t.addEventListener('loadedmetadata', ()=>{ v.duration=t.duration; t.remove(); res(); }); t.addEventListener('error', ()=>{ v.duration = 0; res(); });
+      })));
+
+      // sort & render
+      filtered = [...videos];
+      applySort();
+      renderAll();
+    });
+
+    // search & sort
+    search.addEventListener('input', ()=>{ const q = search.value.trim().toLowerCase(); filtered = videos.filter(v=> v.name.toLowerCase().includes(q) || v.folder.toLowerCase().includes(q)); applySort(); renderAll(); });
+    sort.addEventListener('change', ()=>{ applySort(); renderAll(); });
+    function applySort(){ const s = sort.value; filtered.sort((a,b)=>{ if(s==='name') return a.name.localeCompare(b.name); if(s==='date') return b.lastModified - a.lastModified; if(s==='size') return b.size - a.size; return 0; }); videos = filtered; }
+
+    // Import button hookup
+    exportBtn.addEventListener('click', ()=>{/* handled above */});
+    document.querySelector('label[for="folderPicker"]').addEventListener('click', ()=> { importFile.value=''; });
+    document.getElementById('importFile')?.addEventListener?.('change', ()=>{});
+
+    // quick install: service worker registration (optional local, won\'t be active from file://)
+    if('serviceWorker' in navigator){ navigator.serviceWorker.getRegistration().then(reg=>{ /* nothing */ }); }
+
+    // Initial UI hint
+    grid.innerHTML = '<div class="muted">Choose "Select Folder" to index videos. Thumbnails are generated from a video frame (may fail for some codecs). Progress and settings are stored locally.</div>';
+
+  </script>
+</body>
+</html>

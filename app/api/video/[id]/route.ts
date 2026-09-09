@@ -5,6 +5,17 @@ import { nodeStreamToWeb } from "@/lib/stream";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Personal, authenticated video content — "private" so only the viewer's
+// own browser cache may keep it (never a shared/intermediate cache like a
+// CDN or corporate proxy). A short max-age is enough to make "go back to
+// a video I was just watching" feel instant from the browser's own disk
+// cache, without risking a rename/move/delete/optimize action being
+// invisible for long if it happens moments later.
+const CACHE_CONTROL = "private, max-age=300, must-revalidate";
+
+function buildETag(size: number, mtimeMs: number, trackIndex?: number): string {
+  return `"${size}-${Math.trunc(mtimeMs)}${trackIndex !== undefined ? `-t${trackIndex}` : ""}"`;
+}
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const trackParam = req.nextUrl.searchParams.get("track");
@@ -22,6 +33,19 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }
   const mime = MIME_TYPES[ext] || "application/octet-stream";
   const range = req.headers.get("range");
+  const etag = buildETag(stat.size, stat.mtimeMs, trackIndex);
+  const lastModified = new Date(stat.mtimeMs).toUTCString();
+
+  // Conditional GET: if the browser already has this exact byte range
+  // cached and it's still valid (same ETag), skip re-reading/re-sending
+  // the file entirely and just confirm it's still fresh.
+  const ifNoneMatch = req.headers.get("if-none-match");
+  if (ifNoneMatch && ifNoneMatch === etag) {
+    return new Response(null, {
+      status: 304,
+      headers: { ETag: etag, "Cache-Control": CACHE_CONTROL },
+    });
+  }
 
   if (range) {
     const match = /bytes=(\d*)-(\d*)/.exec(range);
@@ -48,7 +72,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         "Accept-Ranges": "bytes",
         "Content-Length": String(chunkSize),
         "Content-Type": mime,
-        "Cache-Control": "no-store",
+        "Cache-Control": CACHE_CONTROL,
+        ETag: etag,
+        "Last-Modified": lastModified,
       },
     });
   }
@@ -63,7 +89,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       "Content-Length": String(stat.size),
       "Content-Type": mime,
       "Accept-Ranges": "bytes",
-      "Cache-Control": "no-store",
+      "Cache-Control": CACHE_CONTROL,
+      ETag: etag,
+      "Last-Modified": lastModified,
     },
   });
 }
