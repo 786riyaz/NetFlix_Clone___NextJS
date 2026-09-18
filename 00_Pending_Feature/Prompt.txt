@@ -1,0 +1,16 @@
+I want to display UserName on the top based on the user Loged in if he is Guest or Admin.
+and there should be timeline drag feature as well with proper drag animation and realtime timeline timestamp as well.
+
+and the folder structure should display the last folder name with the video name.
+Current Selected Folder :: Marvel
+Actual Folder Structure :: \Marvel\X-Men\X-Men 97\X-Men 97 - Season 1\E01.mkv
+Current Visble Video Name :: E01.mkv
+Current Visble Video Folder :: X-Men
+So here the video folder should be :: X-Men 97 - Season 1
+And do not display the video extension to the user.
+
+Do not Display the "Click to optimize" button to Guest Users.
+And there should be option of removing a video from recently watched list.
+
+And i want to integrate this small video player code as well on a button called "Local Player"
+and using this user can play all the videos he want from his device and this code should there without any server interaction for good userexperience and also include more feature and functionionality in this static website from our website.
