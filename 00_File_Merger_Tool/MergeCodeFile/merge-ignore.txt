@@ -3,6 +3,8 @@ Development Packages :::
 node_modules
 .git
 .next
+.cache
+videos
 dist
 build
 =============================================================

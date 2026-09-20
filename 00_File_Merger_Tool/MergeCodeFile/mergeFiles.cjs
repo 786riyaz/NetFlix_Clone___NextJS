@@ -17,7 +17,7 @@ console.log("Root DIR :: ", ROOT_DIR);
 const Combined_Path = ROOT_DIR + `\\00_File_Merger_Tool\\MergeCodeFile`;
 console.log("Combined DIR :: ", Combined_Path);
 
-const OUTPUT_FILE = path.join(ROOT_DIR, "Ludo Game Complete Code.txt");
+const OUTPUT_FILE = path.join(ROOT_DIR, "NetFlix Clone Complete Code.txt");
 const IGNORE_FILE = path.join(Combined_Path, "merge-ignore.txt");
 
 const ig = ignore();
@@ -94,7 +94,7 @@ function main() {
   console.log("Merging files...");
   mergeFiles(files);
 
-  console.log("Complete Code.txt created successfully!");
+  console.log("NetFlix Clone Complete Code.txt created successfully!");
 }
 
 main();
