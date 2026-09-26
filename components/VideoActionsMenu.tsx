@@ -24,7 +24,6 @@ const [dialog, setDialog] = useState<"rename" | "move" | "delete" | null>(null);
 const [busy, setBusy] = useState(false);
 const [error, setError] = useState<string>();
 const menuRef = useRef<HTMLDivElement>(null);
-
 useEffect(() => {
 if (!open) return;
 function onDocClick(e: MouseEvent) {
@@ -33,7 +32,6 @@ if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(fals
 document.addEventListener("click", onDocClick);
 return () => document.removeEventListener("click", onDocClick);
 }, [open]);
-
 async function patch(body: Record<string, string>, successMsg: string) {
 setBusy(true);
 setError(undefined);
@@ -67,12 +65,10 @@ setDialog(null);
 onDeleted?.(video.id);
 pushToast(`Deleted "${video.name}".`, "success");
 }
-
 function stop(e: React.MouseEvent | React.KeyboardEvent) {
 e.stopPropagation();
 e.preventDefault();
 }
-
 return (
 <>
 <div ref={menuRef} className="relative">

@@ -52,7 +52,6 @@ const [segments, setSegments] = useState<string[]>([]);
 const handleKeyNav = useGridKeyboardNav();
 const containerRef = useRef<HTMLDivElement>(null);
 const wasKeyboardNav = useRef(false);
-
 function goTo(depth: number) {
 wasKeyboardNav.current = true;
 setSegments((s) => s.slice(0, depth));
@@ -69,7 +68,6 @@ if (!wasKeyboardNav.current) return;
 wasKeyboardNav.current = false;
 containerRef.current?.querySelector<HTMLElement>('[role="button"][tabindex]')?.focus();
 }, [segments]);
-
 const current = useMemo(() => {
 let node = tree;
 for (const seg of segments) {
@@ -79,7 +77,6 @@ node = next;
 }
 return node;
 }, [tree, segments]);
-
 const subfolders = useMemo(
 () => Array.from(current.folders.values()).sort((a, b) => a.name.localeCompare(b.name)),
 [current]
@@ -88,11 +85,9 @@ const filesHere = useMemo(
 () => [...current.videos].sort((a, b) => a.name.localeCompare(b.name)),
 [current]
 );
-
 if (!subfolders.length && !filesHere.length && segments.length === 0) {
 return <div className="px-4 sm:px-10 py-10 text-muted text-sm">No videos match your filters.</div>;
 }
-
 return (
 <div ref={containerRef} className="px-4 sm:px-10" onKeyDown={handleKeyNav}>
 {/* Breadcrumb */}
@@ -120,11 +115,9 @@ i === segments.length - 1 ? "text-white font-medium" : "text-muted"
 </span>
 ))}
 </nav>
-
 {subfolders.length === 0 && filesHere.length === 0 && (
 <div className="py-10 text-muted text-sm">This folder is empty.</div>
 )}
-
 {subfolders.length > 0 && (
 <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2.5 sm:gap-3 mb-6">
 {subfolders.map((f) => (
@@ -151,7 +144,6 @@ title={f.name}
 ))}
 </div>
 )}
-
 {filesHere.length > 0 && (
 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3">
 {filesHere.map((v) => (

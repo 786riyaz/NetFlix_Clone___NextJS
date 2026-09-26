@@ -6,7 +6,6 @@ import { nodeStreamToWeb } from "@/lib/stream";
 import { BUNDLED_FFMPEG_PATH } from "@/lib/ffmpeg-bin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
 function extractToVtt(ffmpegBin: string, absPath: string, subtitleIndex: number, outPath: string): Promise<void> {
 return new Promise((resolve, reject) => {
 const args = ["-y", "-i", absPath, "-map", `0:s:${subtitleIndex}`, outPath];
@@ -20,7 +19,6 @@ else reject(new Error(stderr.slice(-300) || `ffmpeg exited with code ${code}`));
 });
 });
 }
-
 function statOrNull(p: string) {
 try {
 return statSync(p);
@@ -28,7 +26,6 @@ return statSync(p);
 return null;
 }
 }
-
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
 const trackIndex = Number(req.nextUrl.searchParams.get("track") ?? "0");
 if (!Number.isInteger(trackIndex) || trackIndex < 0) {
@@ -39,7 +36,6 @@ if (!target) return new Response("Not found", { status: 404 });
 if (!target.track.convertible) {
 return new Response("This subtitle track is image-based and can't be converted to text captions.", { status: 422 });
 }
-
 let stat = statOrNull(target.outPath);
 if (!stat) {
 // Subtitle streams are tiny — a couple of seconds of ffmpeg work even
@@ -54,7 +50,6 @@ return new Response(`Could not extract subtitles: ${err?.message || "unknown err
 }
 }
 if (!stat) return new Response("Not found", { status: 404 });
-
 const nodeStream = createReadStream(target.outPath);
 nodeStream.on("error", () => {});
 return new Response(nodeStreamToWeb(nodeStream), {

@@ -30,10 +30,9 @@ nl: "Dutch", dut: "Dutch", nld: "Dutch",
 pl: "Polish", pol: "Polish",
 und: "Unknown",
 };
-
 /** Best-effort human label for an audio track: prefers an embedded title
- * (e.g. "Hindi 5.1"), falls back to the language code lookup, then the
- * raw code, then a generic "Track N". */
+* (e.g. "Hindi 5.1"), falls back to the language code lookup, then the
+* raw code, then a generic "Track N". */
 export function languageName(code: string | null, title: string | null, indexForFallback: number): string {
 if (title && title.trim()) return title.trim();
 if (code) {

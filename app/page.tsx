@@ -34,9 +34,9 @@ const [queue, setQueue] = useState<VideoItem[]>([]);
 const [continueIds, setContinueIds] = useState<string[]>([]);
 const [view, setView] = useState<ViewMode>("browse");
 const [superAdmin, setSuperAdmin] = useState(false);
+const [user, setUser] = useState<{ role: "admin" | "guest"; username: string } | null>(null);
 const searchInputRef = useRef<HTMLInputElement>(null);
 const isFirstLoad = useRef(true);
-
 // Restore the last-used view mode once we're on the client (avoids an
 // SSR/client mismatch since it lives in localStorage).
 useEffect(() => {
@@ -50,7 +50,6 @@ function handlePlay(v: VideoItem, list: VideoItem[]) {
 setQueue(list);
 setPlaying(v);
 }
-
 async function load(rescan = false) {
 if (rescan) setRescanning(true);
 else setLoading(true);
@@ -82,11 +81,14 @@ isFirstLoad.current = false;
 useEffect(() => {
 load();
 setContinueIds(getAllProgressIds());
+fetch("/api/me")
+.then((res) => (res.ok ? res.json() : null))
+.then((data) => data && setUser({ role: data.role, username: data.username }))
+.catch(() => {});
 }, []);
 useEffect(() => {
 if (!playing) setContinueIds(getAllProgressIds());
 }, [playing]);
-
 // Keyboard shortcuts: "/" focuses search (unless already typing
 // somewhere), Escape closes the player/folder picker or clears an
 // active search — the two things people reach for most in a library
@@ -108,7 +110,6 @@ else if (isTyping && search) setSearch("");
 window.addEventListener("keydown", onKeyDown);
 return () => window.removeEventListener("keydown", onKeyDown);
 }, [playing, showPicker, configured, search]);
-
 async function handleFolderSelected(path: string) {
 const res = await fetch("/api/config", {
 method: "POST",
@@ -209,6 +210,7 @@ onChangeFolder={() => setShowPicker(true)}
 view={view}
 onView={changeView}
 searchInputRef={searchInputRef}
+user={user}
 />
 <ToastContainer />
 {showPicker && (

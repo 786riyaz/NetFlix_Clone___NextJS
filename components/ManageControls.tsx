@@ -22,7 +22,6 @@ size?: "sm" | "md";
 const [dialog, setDialog] = useState<"rename" | "move" | "delete" | null>(null);
 const [busy, setBusy] = useState(false);
 const [error, setError] = useState<string>();
-
 async function patch(body: Record<string, string>, successMsg: string) {
 setBusy(true);
 setError(undefined);

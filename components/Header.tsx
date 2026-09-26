@@ -16,6 +16,7 @@ onChangeFolder,
 view,
 onView,
 searchInputRef,
+user,
 }: {
 search: string;
 onSearch: (v: string) => void;
@@ -30,6 +31,7 @@ onChangeFolder: () => void;
 view: ViewMode;
 onView: (v: ViewMode) => void;
 searchInputRef?: React.RefObject<HTMLInputElement>;
+user?: { role: "admin" | "guest"; username: string } | null;
 }) {
 const [scrolled, setScrolled] = useState(false);
 const [menuOpen, setMenuOpen] = useState(false);
@@ -61,6 +63,21 @@ scrolled || menuOpen ? "bg-bg/95 backdrop-blur border-b border-white/5" : "bg-gr
 >
 <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-10 py-3 sm:py-3.5">
 <span className="text-accent font-extrabold text-lg sm:text-2xl tracking-tight shrink-0">VAULT</span>
+{user && (
+<span
+title={user.role === "admin" ? "Signed in as admin" : "Signed in as guest"}
+className="hidden xs:inline-flex items-center gap-1.5 text-xs sm:text-sm text-muted bg-white/5 border border-white/10 rounded-full px-2.5 py-1 shrink-0"
+>
+<span className="text-white font-medium truncate max-w-[90px] sm:max-w-[140px]">{user.username}</span>
+<span
+className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
+user.role === "admin" ? "bg-accent/20 text-accent" : "bg-white/10 text-muted"
+}`}
+>
+{user.role}
+</span>
+</span>
+)}
 <div className="flex-1 flex items-center gap-2 justify-end min-w-0 flex-wrap sm:flex-nowrap gap-y-1.5">
 <SearchBox search={search} onSearch={onSearch} searchInputRef={searchInputRef} />
 {/* Full control row — tablet and up */}

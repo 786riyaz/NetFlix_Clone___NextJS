@@ -1,25 +1,21 @@
 import { spawn } from "child_process";
 import { promises as fs } from "fs";
 import { BUNDLED_FFMPEG_PATH } from "./ffmpeg-bin";
-
 export type AudioJobState = "queued" | "processing" | "done" | "error";
 export interface AudioJob {
 key: string; // `${videoId}:${trackIndex}`
 state: AudioJobState;
 error?: string;
 }
-
 const jobs = new Map<string, AudioJob>();
 const queue: { key: string; absPath: string; outPath: string; trackIndex: number }[] = [];
 let running = false;
-
 export function jobKey(id: string, trackIndex: number): string {
 return `${id}:${trackIndex}`;
 }
 export function getAudioJob(id: string, trackIndex: number): AudioJob | null {
 return jobs.get(jobKey(id, trackIndex)) || null;
 }
-
 async function processQueue() {
 if (running) return;
 running = true;
@@ -42,7 +38,6 @@ await fs.unlink(item.outPath).catch(() => {});
 running = false;
 }
 }
-
 export function enqueueAudioSwitch(
 ffmpegBin: string,
 id: string,
@@ -59,7 +54,6 @@ queue.push({ key, absPath, outPath, trackIndex });
 processQueue();
 return job;
 }
-
 function remuxAudioTrack(absPath: string, outPath: string, trackIndex: number): Promise<void> {
 return new Promise((resolve, reject) => {
 const ffmpegBin = process.env.FFMPEG_PATH || BUNDLED_FFMPEG_PATH || "ffmpeg";

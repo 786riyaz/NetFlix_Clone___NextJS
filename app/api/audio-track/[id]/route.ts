@@ -4,7 +4,6 @@ import { enqueueAudioSwitch, getAudioJob } from "@/lib/audioTrack";
 import { BUNDLED_FFMPEG_PATH } from "@/lib/ffmpeg-bin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
 const trackIndex = Number(req.nextUrl.searchParams.get("track") ?? "0");
 if (!Number.isInteger(trackIndex) || trackIndex < 0) {
@@ -17,7 +16,6 @@ if (job) return NextResponse.json(job);
 const existing = await resolveAudioTrackPath(params.id, trackIndex);
 return NextResponse.json({ state: existing ? "done" : "idle" });
 }
-
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
 const { trackIndex } = await req.json().catch(() => ({ trackIndex: undefined }));
 if (typeof trackIndex !== "number" || trackIndex < 0) {

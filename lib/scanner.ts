@@ -138,7 +138,6 @@ scanInFlight = null;
 const remuxInProgress = new Set<string>();
 let remuxQueueRunning = false;
 const remuxQueue: { paths: LibraryPaths; id: string; absPath: string }[] = [];
-
 async function processRemuxQueue() {
 if (remuxQueueRunning) return;
 remuxQueueRunning = true;
@@ -168,7 +167,6 @@ remuxInProgress.delete(id);
 remuxQueueRunning = false;
 }
 }
-
 const metaBackfillInProgress = new Set<string>();
 function scheduleMetaBackfill(paths: LibraryPaths, id: string, absPath: string, cache: CacheFile) {
 if (cache.entries[id]?.audioTracks !== undefined) return; // already probed
@@ -617,10 +615,9 @@ const paths = await getPaths();
 if (!paths) return null;
 return path.join(paths.thumbDir, `${id}.jpg`);
 }
-
 /** Everything the manual-optimize API route needs to kick off a transcode
- * job: the original (never the already-optimized) file path, its known
- * duration for progress %, and where the result should be written. */
+* job: the original (never the already-optimized) file path, its known
+* duration for progress %, and where the result should be written. */
 export async function getOptimizeTarget(
 id: string
 ): Promise<{ absPath: string; outPath: string; duration: number; alreadyOptimized: boolean } | null> {
@@ -638,9 +635,8 @@ duration: entry.duration,
 alreadyOptimized: !!entry.optimized,
 };
 }
-
 /** Marks a video as served from its optimized copy from now on (or reverts
- * the flag on failure so the original keeps being served). */
+* the flag on failure so the original keeps being served). */
 export async function markOptimized(id: string, ok: boolean): Promise<void> {
 const paths = await getPaths();
 if (!paths) return;
@@ -651,19 +647,17 @@ if (ok) cache.entries[id].needsOptimize = false;
 await saveCache(paths, cache);
 }
 }
-
 const INVALID_FILENAME_CHARS = /[/\\?%*:|"<>\x00-\x1f]/g;
-
 /** Renames a video's file on disk. Deliberately scoped to changing just
- * the filename within its current folder (no moving between folders) —
- * that covers the actual use case ("this file is misnamed") without the
- * larger surface area of arbitrary moves. The id is preserved, so watch
- * progress, watched status, and any optimize work stay intact. */
+* the filename within its current folder (no moving between folders) —
+* that covers the actual use case ("this file is misnamed") without the
+* larger surface area of arbitrary moves. The id is preserved, so watch
+* progress, watched status, and any optimize work stay intact. */
 /** Renames and/or moves a video's file. `name` changes the filename in
- * place; `folder` moves it to a different (possibly brand-new) folder
- * path relative to the library root — pass "" to move to the root. The
- * id is preserved either way, so watch progress, watched status, and any
- * optimize work stay intact. */
+* place; `folder` moves it to a different (possibly brand-new) folder
+* path relative to the library root — pass "" to move to the root. The
+* id is preserved either way, so watch progress, watched status, and any
+* optimize work stay intact. */
 export async function updateVideoLocation(
 id: string,
 opts: { name?: string; folder?: string }
@@ -673,11 +667,9 @@ if (!paths) throw new Error("No library configured");
 const cache = await loadCache(paths);
 const entry = cache.entries[id];
 if (!entry) throw new Error("Video not found");
-
 const oldAbsPath = path.join(paths.root, entry.relativePath);
 const currentDir = path.dirname(entry.relativePath);
 const originalExt = path.extname(entry.relativePath);
-
 let finalName = path.basename(entry.relativePath);
 if (opts.name !== undefined) {
 const cleaned = opts.name.trim().replace(INVALID_FILENAME_CHARS, "").slice(0, 255);
@@ -688,7 +680,6 @@ if (!cleaned) throw new Error("That name isn't valid");
 const hasKnownExt = VIDEO_EXTENSIONS.has(path.extname(cleaned).slice(1).toLowerCase());
 finalName = hasKnownExt ? cleaned : `${cleaned}${originalExt}`;
 }
-
 let finalDir = currentDir === "." ? "" : currentDir;
 if (opts.folder !== undefined) {
 finalDir = opts.folder
@@ -697,10 +688,8 @@ finalDir = opts.folder
 .filter((seg) => seg && seg !== "." && seg !== "..")
 .join("/");
 }
-
 const newRelativePath = finalDir ? `${finalDir}/${finalName}` : finalName;
 const newAbsPath = path.join(paths.root, newRelativePath);
-
 if (!newAbsPath.startsWith(paths.root)) throw new Error("Invalid path");
 if (newAbsPath === oldAbsPath) {
 const folder = newRelativePath.includes("/") ? newRelativePath.split("/")[0] : "";
@@ -708,19 +697,15 @@ return toVideoItem(entry, folder, newRelativePath);
 }
 const collision = await fs.stat(newAbsPath).catch(() => null);
 if (collision) throw new Error("A file with that name already exists there");
-
 await fs.mkdir(path.dirname(newAbsPath), { recursive: true });
 await fs.rename(oldAbsPath, newAbsPath);
-
 delete cache.pathIndex![entry.relativePath];
 entry.relativePath = newRelativePath;
 cache.pathIndex![newRelativePath] = id;
 await saveCache(paths, cache);
-
 const folder = newRelativePath.includes("/") ? newRelativePath.split("/")[0] : "";
 return toVideoItem(entry, folder, newRelativePath);
 }
-
 /** Deletes a video's file, its cached thumbnail, and any optimized copy. */
 export async function deleteVideo(id: string): Promise<void> {
 const paths = await getPaths();
@@ -728,20 +713,16 @@ if (!paths) throw new Error("No library configured");
 const cache = await loadCache(paths);
 const entry = cache.entries[id];
 if (!entry) throw new Error("Video not found");
-
 const absPath = path.join(paths.root, entry.relativePath);
 if (!absPath.startsWith(paths.root)) throw new Error("Invalid path");
-
 await fs.unlink(absPath);
 await fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
 await fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
 await deleteAudioTrackFiles(paths, id);
-
 delete cache.entries[id];
 delete cache.pathIndex![entry.relativePath];
 await saveCache(paths, cache);
 }
-
 async function deleteAudioTrackFiles(paths: LibraryPaths, id: string): Promise<void> {
 await deleteFilesForId(paths.audioDir, id);
 await deleteFilesForId(paths.subtitleDir, id);
@@ -758,12 +739,11 @@ files
 // dir may not exist yet — nothing to clean up
 }
 }
-
 /** Everything the audio-track switch API needs: the source file to remux
- * from (always the original, not an already-optimized copy, so track
- * selection isn't limited by what a prior optimize pass kept), where the
- * per-track result should be written, and the track list to validate
- * against. */
+* from (always the original, not an already-optimized copy, so track
+* selection isn't limited by what a prior optimize pass kept), where the
+* per-track result should be written, and the track list to validate
+* against. */
 export async function getAudioTrackSwitchTarget(
 id: string,
 trackIndex: number
@@ -779,10 +759,9 @@ const absPath = path.join(paths.root, entry.relativePath);
 if (!absPath.startsWith(paths.root)) return null;
 return { absPath, outPath: path.join(paths.audioDir, `${id}-${trackIndex}.mp4`), track };
 }
-
 /** Resolves the already-remuxed file for a specific audio track, if the
- * background job for it has finished. Returns null if it hasn't (or was
- * never requested) — the caller should fall back to the default stream. */
+* background job for it has finished. Returns null if it hasn't (or was
+* never requested) — the caller should fall back to the default stream. */
 export async function resolveAudioTrackPath(id: string, trackIndex: number): Promise<string | null> {
 const paths = await getPaths();
 if (!paths) return null;
@@ -790,10 +769,9 @@ const outPath = path.join(paths.audioDir, `${id}-${trackIndex}.mp4`);
 const stat = await fs.stat(outPath).catch(() => null);
 return stat ? outPath : null;
 }
-
 /** Everything the subtitle extraction route needs: source file, cached
- * .vtt output path, and the track metadata (to reject image-based
- * subtitle formats up front rather than letting ffmpeg fail on them). */
+* .vtt output path, and the track metadata (to reject image-based
+* subtitle formats up front rather than letting ffmpeg fail on them). */
 export async function getSubtitleExtractTarget(
 id: string,
 trackIndex: number

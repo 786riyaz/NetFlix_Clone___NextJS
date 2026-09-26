@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { matchRole, tokenForRole, isConfigured, AUTH_COOKIE } from "@/lib/auth";
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
 export async function GET() {
 return NextResponse.json({ configured: isConfigured() });
 }
-
 export async function POST(req: NextRequest) {
 if (!isConfigured()) {
 return NextResponse.json(
@@ -31,7 +28,6 @@ maxAge: 60 * 60 * 24 * 30, // 30 days
 });
 return res;
 }
-
 export async function DELETE() {
 const res = NextResponse.json({ ok: true });
 res.cookies.delete(AUTH_COOKIE);

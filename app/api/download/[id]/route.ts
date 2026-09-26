@@ -4,7 +4,6 @@ import { resolveVideoPath, MIME_TYPES } from "@/lib/scanner";
 import { nodeStreamToWeb } from "@/lib/stream";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
 // Encodes a filename for Content-Disposition so names with spaces, unicode,
 // or quotes don't break the header or get mangled by the browser.
 function contentDisposition(filename: string): string {
@@ -12,7 +11,6 @@ const fallback = filename.replace(/[^\x20-\x7e]/g, "_").replace(/"/g, "'");
 const encoded = encodeURIComponent(filename);
 return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
-
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
 const trackParam = req.nextUrl.searchParams.get("track");
 const trackIndex = trackParam !== null ? Number(trackParam) : undefined;
@@ -27,7 +25,6 @@ return new Response("Not found", { status: 404 });
 }
 const mime = MIME_TYPES[ext] || "application/octet-stream";
 const range = req.headers.get("range");
-
 // Downloads support Range too — browsers' native download managers use
 // it to resume interrupted downloads on large files, same as the video
 // player does for seeking.
@@ -53,7 +50,6 @@ headers: {
 },
 });
 }
-
 const nodeStream = createReadStream(absPath);
 nodeStream.on("error", () => {});
 return new Response(nodeStreamToWeb(nodeStream), {
