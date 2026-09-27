@@ -161,6 +161,16 @@ const [clickFeedback, setClickFeedback] = useState<"play" | "pause" | null>(null
 const clickFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 const [seekFeedback, setSeekFeedback] = useState<"fwd" | "back" | null>(null);
 const seekFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+// Custom timeline scrubber: dragPct/hoverPct drive the fill+thumb position
+// and the live timestamp tooltip; the actual video.currentTime write during
+// a drag is throttled to one per animation frame via seekRafRef so fast
+// pointer movement over a network-streamed file doesn't flood seeks.
+const [scrubbing, setScrubbing] = useState(false);
+const [dragPct, setDragPct] = useState<number | null>(null);
+const [hoverPct, setHoverPct] = useState<number | null>(null);
+const seekBarRef = useRef<HTMLDivElement>(null);
+const seekRafRef = useRef<number | null>(null);
+const pendingSeekPctRef = useRef<number | null>(null);
 const [showShortcuts, setShowShortcuts] = useState(false);
 const [volume, setVolumeState] = useState(1);
 // Videos always start muted — the person clicks the volume/unmute button
@@ -215,6 +225,11 @@ if (v && v.currentTime > 2) setSavedTime(video.id, v.currentTime);
 };
 // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [video.id]);
+useEffect(() => {
+return () => {
+if (seekRafRef.current != null) cancelAnimationFrame(seekRafRef.current);
+};
+}, []);
 const resetHideTimer = useCallback(() => {
 setShowControls(true);
 if (hideTimer.current) clearTimeout(hideTimer.current);
@@ -304,10 +319,66 @@ const v = videoRef.current;
 if (!v) return;
 v.currentTime = Math.max(0, Math.min((v.duration || 0) - 0.5, v.currentTime + delta));
 }
-function handleSeek(pct: number) {
+function pctFromClientX(clientX: number) {
+const el = seekBarRef.current;
+if (!el) return 0;
+const rect = el.getBoundingClientRect();
+const ratio = rect.width ? (clientX - rect.left) / rect.width : 0;
+return Math.min(100, Math.max(0, ratio * 100));
+}
+// Throttles the actual video seek to once per animation frame while
+// dragging, so the timeline stays perfectly smooth even while scrubbing
+// fast over a long video served through the tunnel/proxy.
+function queueScrubSeek(p: number) {
+pendingSeekPctRef.current = p;
+if (seekRafRef.current != null) return;
+seekRafRef.current = requestAnimationFrame(() => {
+seekRafRef.current = null;
 const v = videoRef.current;
-if (!v || !v.duration) return;
-v.currentTime = (pct / 100) * v.duration;
+const pp = pendingSeekPctRef.current;
+if (v && v.duration && pp != null) {
+v.currentTime = (pp / 100) * v.duration;
+setCurrent(v.currentTime);
+}
+});
+}
+function handleScrubPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+e.stopPropagation();
+if (!duration) return;
+seekBarRef.current?.setPointerCapture(e.pointerId);
+setScrubbing(true);
+setHoverPct(null);
+// Keep controls fully visible for the whole drag — don't let the
+// auto-hide timer fire mid-scrub.
+setShowControls(true);
+if (hideTimer.current) clearTimeout(hideTimer.current);
+const p = pctFromClientX(e.clientX);
+setDragPct(p);
+queueScrubSeek(p);
+}
+function handleScrubPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+if (scrubbing) {
+const p = pctFromClientX(e.clientX);
+setDragPct(p);
+queueScrubSeek(p);
+} else {
+setHoverPct(pctFromClientX(e.clientX));
+}
+}
+function handleScrubPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+if (!scrubbing) return;
+seekBarRef.current?.releasePointerCapture(e.pointerId);
+const p = dragPct;
+if (p != null) {
+const v = videoRef.current;
+if (v && v.duration) {
+v.currentTime = (p / 100) * v.duration;
+setCurrent(v.currentTime);
+}
+}
+setScrubbing(false);
+setDragPct(null);
+resetHideTimer();
 }
 function handleVolume(val: number) {
 const v = videoRef.current;
@@ -673,21 +744,78 @@ showControls ? "opacity-100" : "opacity-0 pointer-events-none"
 }`}
 >
 {/* seek bar */}
-<div className="relative w-full h-8 sm:h-3 flex items-center mb-2 group/seek">
+{(() => {
+const displayPct = dragPct != null ? dragPct : pct;
+const tooltipPct = scrubbing ? dragPct : hoverPct;
+const thumbScale = scrubbing ? 1.4 : hoverPct != null ? 1.15 : 1;
+const tooltipTime = tooltipPct != null && duration ? (tooltipPct / 100) * duration : 0;
+const sprite = video.scrubSprite;
+let spriteStyle: React.CSSProperties | null = null;
+if (sprite && tooltipPct != null) {
+const frame = Math.min(sprite.count - 1, Math.max(0, Math.floor(tooltipTime / sprite.interval)));
+const col = frame % sprite.cols;
+const row = Math.floor(frame / sprite.cols);
+spriteStyle = {
+width: sprite.tileW,
+height: sprite.tileH,
+backgroundImage: `url(/api/scrub-sprite/${video.id})`,
+backgroundRepeat: "no-repeat",
+backgroundPosition: `-${col * sprite.tileW}px -${row * sprite.tileH}px`,
+backgroundSize: `${sprite.cols * sprite.tileW}px ${sprite.rows * sprite.tileH}px`,
+};
+}
+return (
+<div
+ref={seekBarRef}
+className="relative w-full h-8 sm:h-3 flex items-center mb-2 group/seek cursor-pointer touch-none select-none"
+role="slider"
+aria-label="Seek"
+aria-valuemin={0}
+aria-valuemax={100}
+aria-valuenow={Math.round(displayPct)}
+onPointerDown={handleScrubPointerDown}
+onPointerMove={handleScrubPointerMove}
+onPointerUp={handleScrubPointerUp}
+onPointerCancel={handleScrubPointerUp}
+onPointerLeave={() => !scrubbing && setHoverPct(null)}
+>
+{tooltipPct != null && duration > 0 && (
+<div
+className="absolute bottom-full mb-2 -translate-x-1/2 flex flex-col items-center pointer-events-none"
+style={{ left: `${tooltipPct}%` }}
+>
+{spriteStyle && (
+<div
+className="rounded overflow-hidden border border-white/25 shadow-lg mb-1.5 bg-black/40"
+style={spriteStyle}
+/>
+)}
+<div className="px-2 py-1 rounded bg-black/90 text-[11px] sm:text-xs text-white tabular-nums whitespace-nowrap shadow-lg">
+{fmtDuration(tooltipTime)}
+</div>
+</div>
+)}
 <div className="absolute w-full h-1 rounded bg-white/20" />
 <div className="absolute h-1 rounded bg-white/35" style={{ width: `${duration ? (buffered / duration) * 100 : 0}%` }} />
-<div className="absolute h-1 rounded bg-accent" style={{ width: `${pct}%` }} />
-<input
-type="range"
-min={0}
-max={100}
-step={0.1}
-value={pct}
-onChange={(e) => handleSeek(Number(e.target.value))}
-className="relative w-full h-8 sm:h-3 cursor-pointer"
-aria-label="Seek"
+<div
+className="absolute h-1 rounded bg-accent"
+style={{ width: `${displayPct}%`, transition: scrubbing ? "none" : "width 120ms linear" }}
+/>
+<div
+className="absolute rounded-full bg-accent shadow-[0_0_0_3px_rgba(0,0,0,0.35)]"
+style={{
+left: `${displayPct}%`,
+top: "50%",
+width: 13,
+height: 13,
+marginLeft: -6.5,
+transform: `translateY(-50%) scale(${thumbScale})`,
+transition: scrubbing ? "transform 100ms ease-out" : "transform 150ms ease-out, left 120ms linear",
+}}
 />
 </div>
+);
+})()}
 <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
 <IconButton onClick={togglePlay} label={playing ? "Pause" : "Play"}>
 {playing ? <PauseIcon /> : <PlayIcon />}

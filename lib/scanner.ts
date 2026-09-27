@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
 import { spawn } from "child_process";
-import type { VideoItem, AudioTrackInfo, SubtitleTrackInfo } from "./types";
+import type { VideoItem, AudioTrackInfo, SubtitleTrackInfo, ScrubSpriteMeta } from "./types";
 import { getVideoDir } from "./config";
 import { BUNDLED_FFMPEG_PATH, BUNDLED_FFPROBE_PATH } from "./ffmpeg-bin";
 import { isFastStart, remuxFastStart, FASTSTART_EXTS } from "./faststart";
@@ -47,6 +47,10 @@ vfr?: boolean;
 needsOptimize?: boolean;
 audioTracks?: AudioTrackInfo[];
 subtitleTracks?: SubtitleTrackInfo[];
+// Timeline-scrub thumbnail sprite (see generateScrubSprite). undefined =
+// never attempted yet (triggers a backfill); null = attempted and not
+// available (too short a clip, or ffmpeg failed); object = generated.
+scrubSprite?: ScrubSpriteMeta | null;
 }
 interface CacheFile {
 entries: Record<string, CacheEntry>;
@@ -61,6 +65,7 @@ pathIndex?: Record<string, string>;
 interface LibraryPaths {
 root: string;
 thumbDir: string;
+spriteDir: string;
 optimizedDir: string;
 audioDir: string;
 subtitleDir: string;
@@ -83,6 +88,7 @@ const dir = cacheDirFor(root);
 return {
 root,
 thumbDir: path.join(dir, "thumbnails"),
+spriteDir: path.join(dir, "sprites"),
 optimizedDir: path.join(dir, "optimized"),
 audioDir: path.join(dir, "audio-tracks"),
 subtitleDir: path.join(dir, "subtitles"),
@@ -93,11 +99,12 @@ function makeId(): string {
 // No longer derived from the path — see the pathIndex comment above.
 return crypto.randomBytes(16).toString("hex");
 }
-async function ensureDirs(thumbDir: string, optimizedDir?: string, audioDir?: string, subtitleDir?: string) {
+async function ensureDirs(thumbDir: string, optimizedDir?: string, audioDir?: string, subtitleDir?: string, spriteDir?: string) {
 await fs.mkdir(thumbDir, { recursive: true });
 if (optimizedDir) await fs.mkdir(optimizedDir, { recursive: true });
 if (audioDir) await fs.mkdir(audioDir, { recursive: true });
 if (subtitleDir) await fs.mkdir(subtitleDir, { recursive: true });
+if (spriteDir) await fs.mkdir(spriteDir, { recursive: true });
 }
 async function loadCache(paths: LibraryPaths): Promise<CacheFile> {
 if (memCache && memCacheRoot === paths.root) return memCache;
@@ -120,7 +127,7 @@ memCacheRoot = paths.root;
 return memCache!;
 }
 async function saveCache(paths: LibraryPaths, cache: CacheFile) {
-await ensureDirs(paths.thumbDir, paths.optimizedDir, paths.audioDir, paths.subtitleDir);
+await ensureDirs(paths.thumbDir, paths.optimizedDir, paths.audioDir, paths.subtitleDir, paths.spriteDir);
 await fs.writeFile(paths.cacheFile, JSON.stringify(cache), "utf-8");
 }
 /** Call after the user picks a new library folder so stale data isn't served. */
@@ -396,6 +403,98 @@ p.on("error", () => resolve(false));
 p.on("exit", (code) => resolve(code === 0));
 });
 }
+// --- timeline-scrub thumbnail sprite ---
+// One contact-sheet JPEG per video (a grid of small evenly-spaced frames),
+// generated in a single ffmpeg pass via the fps+tile filters rather than
+// one process per frame — a single decode pass is far cheaper than N
+// separate -ss seeks, and gives the player one small image to show
+// instead of a network round-trip per pixel of drag.
+const SPRITE_TILE_W = 160;
+const SPRITE_TILE_H = 90;
+const SPRITE_MAX_FRAMES = 100;
+const SPRITE_MIN_FRAMES = 6;
+function planSprite(duration: number): { count: number; cols: number; rows: number; interval: number } | null {
+if (!duration || duration < 2) return null;
+let count = Math.round(duration / 5);
+count = Math.max(SPRITE_MIN_FRAMES, Math.min(SPRITE_MAX_FRAMES, count));
+count = Math.min(count, Math.max(2, Math.floor(duration))); // never denser than ~1 frame/sec
+const cols = Math.min(10, count);
+const rows = Math.ceil(count / cols);
+const interval = duration / count;
+return { count, cols, rows, interval };
+}
+function generateScrubSprite(
+absPath: string,
+id: string,
+duration: number,
+spriteDir: string
+): Promise<ScrubSpriteMeta | null> {
+const plan = planSprite(duration);
+if (!plan) return Promise.resolve(null);
+return new Promise((resolve) => {
+const outPath = path.join(spriteDir, `${id}.jpg`);
+const { count, cols, rows, interval } = plan;
+const vf =
+`fps=1/${interval},` +
+`scale=${SPRITE_TILE_W}:${SPRITE_TILE_H}:force_original_aspect_ratio=increase,` +
+`crop=${SPRITE_TILE_W}:${SPRITE_TILE_H},` +
+`tile=${cols}x${rows}`;
+const args = ["-y", "-i", absPath, "-frames:v", "1", "-vf", vf, "-q:v", "5", outPath];
+const p = spawn(FFMPEG_BIN, args);
+p.on("error", () => resolve(null));
+p.on("exit", (code) => {
+if (code === 0) resolve({ cols, rows, count, interval, tileW: SPRITE_TILE_W, tileH: SPRITE_TILE_H });
+else resolve(null);
+});
+});
+}
+// Backfill queue for videos scanned before this feature existed — bounded
+// the same way the fast-start remux queue is, so shipping this to an
+// existing library of hundreds of videos doesn't launch hundreds of
+// concurrent ffmpeg decodes the moment the app restarts.
+const spriteInProgress = new Set<string>();
+let spriteQueueRunning = false;
+const spriteQueue: { paths: LibraryPaths; id: string; absPath: string; duration: number }[] = [];
+async function processSpriteQueue() {
+if (spriteQueueRunning) return;
+spriteQueueRunning = true;
+try {
+while (spriteQueue.length) {
+const batch = spriteQueue.splice(0, 2);
+await Promise.all(
+batch.map(async ({ paths, id, absPath, duration }) => {
+if (spriteInProgress.has(id)) return;
+spriteInProgress.add(id);
+try {
+const sprite = await generateScrubSprite(absPath, id, duration, paths.spriteDir);
+const fresh = await loadCache(paths);
+if (fresh.entries[id]) {
+fresh.entries[id].scrubSprite = sprite;
+await saveCache(paths, fresh);
+}
+} finally {
+spriteInProgress.delete(id);
+}
+})
+);
+}
+} finally {
+spriteQueueRunning = false;
+}
+}
+function scheduleScrubSpriteBackfill(
+paths: LibraryPaths,
+id: string,
+absPath: string,
+duration: number,
+cache: CacheFile
+) {
+if (cache.entries[id]?.scrubSprite !== undefined) return; // already attempted
+if (spriteInProgress.has(id)) return;
+if (spriteQueue.some((q) => q.id === id)) return;
+spriteQueue.push({ paths, id, absPath, duration });
+processSpriteQueue();
+}
 async function walk(
 dir: string,
 base: string,
@@ -438,7 +537,7 @@ const paths = await getPaths();
 if (!paths) return [];
 if (scanInFlight) return scanInFlight;
 scanInFlight = (async () => {
-await ensureDirs(paths.thumbDir, paths.optimizedDir, paths.audioDir, paths.subtitleDir);
+await ensureDirs(paths.thumbDir, paths.optimizedDir, paths.audioDir, paths.subtitleDir, paths.spriteDir);
 const cache = await loadCache(paths);
 // A forced rescan re-checks ffmpeg availability rather than trusting a
 // cached "false" forever — otherwise fixing the underlying problem
@@ -479,6 +578,7 @@ if (cache.ffmpegAvailable) {
 const ext = path.extname(f.relativePath).slice(1).toLowerCase();
 scheduleFastStartCheck(paths, id, f.abs, ext, cache);
 scheduleMetaBackfill(paths, id, f.abs, cache);
+scheduleScrubSpriteBackfill(paths, id, f.abs, existing.duration, cache);
 }
 } else {
 pending.push({ ...f, id, stat });
@@ -489,9 +589,12 @@ const processed = await runWithConcurrency(pending, 3, async (f) => {
 const meta = cache.ffmpegAvailable
 ? await probeMeta(f.abs)
 : { duration: 0, codec: null, width: null, height: null, bitRate: null, vfr: false, audioTracks: [], subtitleTracks: [] };
-const hasThumbnail = cache.ffmpegAvailable
-? await generateThumbnail(f.abs, f.id, meta.duration, paths.thumbDir)
-: false;
+const [hasThumbnail, scrubSprite] = cache.ffmpegAvailable
+? await Promise.all([
+generateThumbnail(f.abs, f.id, meta.duration, paths.thumbDir),
+generateScrubSprite(f.abs, f.id, meta.duration, paths.spriteDir),
+])
+: [false, null];
 // A forced rescan reprocesses every file, including ones that are
 // byte-for-byte unchanged (e.g. after a move) — but that shouldn't
 // throw away an optimized copy that's still sitting on disk and
@@ -505,6 +608,7 @@ size: f.stat.size,
 mtimeMs: f.stat.mtimeMs,
 duration: meta.duration,
 hasThumbnail,
+scrubSprite,
 codec: meta.codec,
 width: meta.width,
 height: meta.height,
@@ -529,6 +633,7 @@ for (const id of Object.keys(cache.entries)) {
 if (!seenIds.has(id)) {
 delete cache.entries[id];
 fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
+fs.unlink(path.join(paths.spriteDir, `${id}.jpg`)).catch(() => {});
 fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
 deleteAudioTrackFiles(paths, id).catch(() => {});
 }
@@ -561,6 +666,7 @@ mtimeMs: entry.mtimeMs,
 duration: entry.duration,
 ext,
 hasThumbnail: entry.hasThumbnail,
+scrubSprite: entry.scrubSprite ?? null,
 needsOptimize: !!entry.needsOptimize && !entry.optimized,
 optimized: !!entry.optimized,
 audioTracks: entry.audioTracks || [],
@@ -614,6 +720,11 @@ export async function resolveThumbnailPath(id: string): Promise<string | null> {
 const paths = await getPaths();
 if (!paths) return null;
 return path.join(paths.thumbDir, `${id}.jpg`);
+}
+export async function resolveScrubSpritePath(id: string): Promise<string | null> {
+const paths = await getPaths();
+if (!paths) return null;
+return path.join(paths.spriteDir, `${id}.jpg`);
 }
 /** Everything the manual-optimize API route needs to kick off a transcode
 * job: the original (never the already-optimized) file path, its known
@@ -717,6 +828,7 @@ const absPath = path.join(paths.root, entry.relativePath);
 if (!absPath.startsWith(paths.root)) throw new Error("Invalid path");
 await fs.unlink(absPath);
 await fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
+await fs.unlink(path.join(paths.spriteDir, `${id}.jpg`)).catch(() => {});
 await fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
 await deleteAudioTrackFiles(paths, id);
 delete cache.entries[id];

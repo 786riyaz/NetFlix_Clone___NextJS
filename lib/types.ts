@@ -11,6 +11,18 @@ language: string | null;
 title: string | null;
 convertible: boolean; // text-based (SRT/ASS/etc) can become WebVTT; image-based (PGS/VobSub) can't
 }
+// Geometry of the timeline-scrub thumbnail sprite (see lib/scanner.ts
+// generateScrubSprite) — a single JPEG grid of small frames, evenly
+// spaced through the video, that the player crops via background-position
+// to show a live preview while dragging the timeline.
+export interface ScrubSpriteMeta {
+cols: number;
+rows: number;
+count: number; // total frames in the sprite (== cols*rows, last row may be partial)
+interval: number; // seconds between consecutive frames
+tileW: number;
+tileH: number;
+}
 export interface VideoItem {
 id: string;
 name: string;
@@ -21,6 +33,7 @@ mtimeMs: number;
 duration: number; // seconds, 0 if unknown
 ext: string;
 hasThumbnail: boolean;
+scrubSprite: ScrubSpriteMeta | null; // null until generated, or if the clip is too short
 // Heuristic: true if this file (codec, variable frame rate, or bloated
 // bitrate) is likely to stutter in any player, not just this app.
 // Surfaced as an opt-in "Optimize" action rather than run automatically,
