@@ -11,14 +11,12 @@ language: string | null;
 title: string | null;
 convertible: boolean; // text-based (SRT/ASS/etc) can become WebVTT; image-based (PGS/VobSub) can't
 }
-// Geometry of the timeline-scrub thumbnail sprite (see lib/scanner.ts
-// generateScrubSprite) — a single JPEG grid of small frames, evenly
-// spaced through the video, that the player crops via background-position
-// to show a live preview while dragging the timeline.
+// Metadata for the timeline-scrub preview thumbnails (see lib/scanner.ts
+// generateScrubFrames) — a handful of small individual JPEGs evenly
+// spaced through the video, fetched one at a time by index while
+// dragging the timeline.
 export interface ScrubSpriteMeta {
-cols: number;
-rows: number;
-count: number; // total frames in the sprite (== cols*rows, last row may be partial)
+count: number; // number of individual preview frames generated
 interval: number; // seconds between consecutive frames
 tileW: number;
 tileH: number;

@@ -20,6 +20,16 @@ i++;
 }
 return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
+/** Strips the file extension for display purposes only — the underlying
+* video.name (with extension) is still what's used for renaming, search,
+* sorting, and anything else that needs the real filename. Only strips a
+* short (<=5 char) trailing extension so a dotted title without one isn't
+* mangled. */
+export function displayName(name: string): string {
+const i = name.lastIndexOf(".");
+if (i <= 0 || name.length - i > 6) return name;
+return name.slice(0, i);
+}
 export function fmtDate(mtimeMs: number): string {
 return new Date(mtimeMs).toLocaleDateString(undefined, {
 year: "numeric",

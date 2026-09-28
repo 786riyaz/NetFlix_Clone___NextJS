@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { VideoItem } from "@/lib/types";
-import { fmtDuration, fmtSize, fmtDate } from "@/lib/format";
+import { fmtDuration, fmtSize, fmtDate, displayName } from "@/lib/format";
 import { getSavedTime, isWatched } from "@/lib/progress";
 import OptimizeBadge from "./OptimizeBadge";
 import VideoActionsMenu from "./VideoActionsMenu";
@@ -40,7 +40,7 @@ onPlay(video);
 }
 }}
 className="group w-full flex items-center gap-3 px-2 sm:px-3 py-2 rounded-md hover:bg-white/5 active:bg-white/10 transition-colors text-left focus-ring cursor-pointer"
-title={video.name}
+title={displayName(video.name)}
 >
 <div className="relative w-[96px] xs:w-[120px] sm:w-[150px] aspect-video shrink-0 rounded-md overflow-hidden bg-gradient-to-br from-[#232326] to-[#0e0e10]">
 {video.hasThumbnail ? (
@@ -80,8 +80,8 @@ imgLoaded ? "opacity-100" : "opacity-0"
 </div>
 <div className="min-w-0 flex-1">
 <div className="flex items-center gap-2">
-<span className="text-[13px] sm:text-sm font-medium truncate text-white/90">{video.name}</span>
-{video.needsOptimize && <OptimizeBadge videoId={video.id} videoName={video.name} />}
+<span className="text-[13px] sm:text-sm font-medium truncate text-white/90">{displayName(video.name)}</span>
+{video.needsOptimize && <OptimizeBadge videoId={video.id} videoName={displayName(video.name)} />}
 {watched && (
 <span className="shrink-0 w-4 h-4 rounded-full bg-accent flex items-center justify-center">
 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5">

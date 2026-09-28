@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { VideoItem } from "@/lib/types";
-import { fmtDuration } from "@/lib/format";
+import { fmtDuration, displayName } from "@/lib/format";
 import {
 getSavedTime,
 setSavedTime,
@@ -641,7 +641,7 @@ showControls ? "opacity-100" : "opacity-0 pointer-events-none"
 }`}
 >
 <div className="min-w-0 pr-4">
-<div className="text-lg sm:text-xl font-semibold truncate">{video.name}</div>
+<div className="text-lg sm:text-xl font-semibold truncate">{displayName(video.name)}</div>
 <div className="text-xs sm:text-sm text-muted truncate">{video.folder || "Library root"}</div>
 </div>
 <div className="flex items-center gap-2 shrink-0">
@@ -750,19 +750,10 @@ const tooltipPct = scrubbing ? dragPct : hoverPct;
 const thumbScale = scrubbing ? 1.4 : hoverPct != null ? 1.15 : 1;
 const tooltipTime = tooltipPct != null && duration ? (tooltipPct / 100) * duration : 0;
 const sprite = video.scrubSprite;
-let spriteStyle: React.CSSProperties | null = null;
+let previewFrame: { src: string; width: number; height: number } | null = null;
 if (sprite && tooltipPct != null) {
-const frame = Math.min(sprite.count - 1, Math.max(0, Math.floor(tooltipTime / sprite.interval)));
-const col = frame % sprite.cols;
-const row = Math.floor(frame / sprite.cols);
-spriteStyle = {
-width: sprite.tileW,
-height: sprite.tileH,
-backgroundImage: `url(/api/scrub-sprite/${video.id})`,
-backgroundRepeat: "no-repeat",
-backgroundPosition: `-${col * sprite.tileW}px -${row * sprite.tileH}px`,
-backgroundSize: `${sprite.cols * sprite.tileW}px ${sprite.rows * sprite.tileH}px`,
-};
+const idx = Math.min(sprite.count - 1, Math.max(0, Math.floor(tooltipTime / sprite.interval)));
+previewFrame = { src: `/api/scrub-sprite/${video.id}?frame=${idx}`, width: sprite.tileW, height: sprite.tileH };
 }
 return (
 <div
@@ -784,10 +775,15 @@ onPointerLeave={() => !scrubbing && setHoverPct(null)}
 className="absolute bottom-full mb-2 -translate-x-1/2 flex flex-col items-center pointer-events-none"
 style={{ left: `${tooltipPct}%` }}
 >
-{spriteStyle && (
-<div
-className="rounded overflow-hidden border border-white/25 shadow-lg mb-1.5 bg-black/40"
-style={spriteStyle}
+{previewFrame && (
+// eslint-disable-next-line @next/next/no-img-element
+<img
+src={previewFrame.src}
+alt=""
+width={previewFrame.width}
+height={previewFrame.height}
+className="rounded border border-white/25 shadow-lg mb-1.5 bg-black/40 block"
+style={{ width: previewFrame.width, height: previewFrame.height }}
 />
 )}
 <div className="px-2 py-1 rounded bg-black/90 text-[11px] sm:text-xs text-white tabular-nums whitespace-nowrap shadow-lg">
@@ -1004,7 +1000,7 @@ Reset
 </div>
 {nextVideo && (
 <div onClick={(e) => e.stopPropagation()} className="absolute bottom-24 sm:bottom-28 right-4 sm:right-6 text-xs text-muted max-w-[50%] truncate">
-Up next: <span className="text-white">{nextVideo.name}</span>
+Up next: <span className="text-white">{displayName(nextVideo.name)}</span>
 </div>
 )}
 </div>

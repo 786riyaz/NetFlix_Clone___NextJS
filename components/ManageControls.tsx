@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import type { VideoItem } from "@/lib/types";
+import { displayName } from "@/lib/format";
 import { pushToast } from "@/lib/toast";
 import { clearProgress } from "@/lib/progress";
 import ConfirmDialog from "./ConfirmDialog";
@@ -53,7 +54,7 @@ return;
 clearProgress(video.id);
 setDialog(null);
 onDeleted(video.id);
-pushToast(`Deleted "${video.name}".`, "success");
+pushToast(`Deleted "${displayName(video.name)}".`, "success");
 }
 // Touch targets are bumped up on small screens (mobile has no hover to
 // compensate for a too-small tap area) and stay compact on desktop.
@@ -127,7 +128,7 @@ onCancel={() => setDialog(null)}
 {dialog === "delete" && (
 <ConfirmDialog
 title="Delete this video?"
-message={`"${video.name}" will be permanently removed from disk. This can't be undone.`}
+message={`"${displayName(video.name)}" will be permanently removed from disk. This can't be undone.`}
 confirmLabel="Delete"
 danger
 busy={busy}

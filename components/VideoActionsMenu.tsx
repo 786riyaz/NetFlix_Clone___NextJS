@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { VideoItem } from "@/lib/types";
+import { displayName } from "@/lib/format";
 import { pushToast } from "@/lib/toast";
 import { clearProgress } from "@/lib/progress";
 import ConfirmDialog from "./ConfirmDialog";
@@ -63,7 +64,7 @@ return;
 clearProgress(video.id);
 setDialog(null);
 onDeleted?.(video.id);
-pushToast(`Deleted "${video.name}".`, "success");
+pushToast(`Deleted "${displayName(video.name)}".`, "success");
 }
 function stop(e: React.MouseEvent | React.KeyboardEvent) {
 e.stopPropagation();
@@ -162,7 +163,7 @@ onCancel={() => setDialog(null)}
 {dialog === "delete" && (
 <ConfirmDialog
 title="Delete this video?"
-message={`"${video.name}" will be permanently removed from disk. This can't be undone.`}
+message={`"${displayName(video.name)}" will be permanently removed from disk. This can't be undone.`}
 confirmLabel="Delete"
 danger
 busy={busy}

@@ -47,7 +47,7 @@ vfr?: boolean;
 needsOptimize?: boolean;
 audioTracks?: AudioTrackInfo[];
 subtitleTracks?: SubtitleTrackInfo[];
-// Timeline-scrub thumbnail sprite (see generateScrubSprite). undefined =
+// Timeline-scrub preview thumbnails (see generateScrubFrames). undefined =
 // never attempted yet (triggers a backfill); null = attempted and not
 // available (too short a clip, or ffmpeg failed); object = generated.
 scrubSprite?: ScrubSpriteMeta | null;
@@ -403,55 +403,83 @@ p.on("error", () => resolve(false));
 p.on("exit", (code) => resolve(code === 0));
 });
 }
-// --- timeline-scrub thumbnail sprite ---
-// One contact-sheet JPEG per video (a grid of small evenly-spaced frames),
-// generated in a single ffmpeg pass via the fps+tile filters rather than
-// one process per frame — a single decode pass is far cheaper than N
-// separate -ss seeks, and gives the player one small image to show
-// instead of a network round-trip per pixel of drag.
-const SPRITE_TILE_W = 160;
-const SPRITE_TILE_H = 90;
-const SPRITE_MAX_FRAMES = 100;
-const SPRITE_MIN_FRAMES = 6;
-function planSprite(duration: number): { count: number; cols: number; rows: number; interval: number } | null {
+// --- timeline-scrub thumbnails ---
+// A handful of small JPEGs per video, evenly spaced through its runtime,
+// so the player can show a preview while dragging. Each one is grabbed
+// with the same fast "-ss before -i" input seek generateThumbnail already
+// uses — that jumps straight to the nearest keyframe without decoding
+// anything before it, so it costs roughly the same ~100-300ms regardless
+// of how long the file is. An earlier version instead did one ffmpeg pass
+// with the fps+tile filters to build a single contact-sheet image, but
+// that filter chain has to sequentially decode the *entire* file — for a
+// real full-length video that's as slow as playing the whole thing back
+// (worse for heavy codecs), which hung the scan. Many fast small seeks
+// beat one slow full decode.
+const SCRUB_TILE_W = 160;
+const SCRUB_TILE_H = 90;
+const SCRUB_MAX_FRAMES = 60;
+const SCRUB_MIN_FRAMES = 4;
+function planScrubFrames(duration: number): { count: number; interval: number } | null {
 if (!duration || duration < 2) return null;
 let count = Math.round(duration / 5);
-count = Math.max(SPRITE_MIN_FRAMES, Math.min(SPRITE_MAX_FRAMES, count));
+count = Math.max(SCRUB_MIN_FRAMES, Math.min(SCRUB_MAX_FRAMES, count));
 count = Math.min(count, Math.max(2, Math.floor(duration))); // never denser than ~1 frame/sec
-const cols = Math.min(10, count);
-const rows = Math.ceil(count / cols);
 const interval = duration / count;
-return { count, cols, rows, interval };
+return { count, interval };
 }
-function generateScrubSprite(
+function grabScrubFrame(absPath: string, outPath: string, seek: number): Promise<boolean> {
+return new Promise((resolve) => {
+const args = [
+"-y",
+"-ss", String(seek),
+"-i", absPath,
+"-frames:v", "1",
+"-vf", `scale=${SCRUB_TILE_W}:${SCRUB_TILE_H}:force_original_aspect_ratio=increase,crop=${SCRUB_TILE_W}:${SCRUB_TILE_H}`,
+"-q:v", "5",
+outPath,
+];
+const p = spawn(FFMPEG_BIN, args);
+p.on("error", () => resolve(false));
+p.on("exit", (code) => resolve(code === 0));
+});
+}
+async function generateScrubFrames(
 absPath: string,
 id: string,
 duration: number,
 spriteDir: string
 ): Promise<ScrubSpriteMeta | null> {
-const plan = planSprite(duration);
-if (!plan) return Promise.resolve(null);
-return new Promise((resolve) => {
-const outPath = path.join(spriteDir, `${id}.jpg`);
-const { count, cols, rows, interval } = plan;
-const vf =
-`fps=1/${interval},` +
-`scale=${SPRITE_TILE_W}:${SPRITE_TILE_H}:force_original_aspect_ratio=increase,` +
-`crop=${SPRITE_TILE_W}:${SPRITE_TILE_H},` +
-`tile=${cols}x${rows}`;
-const args = ["-y", "-i", absPath, "-frames:v", "1", "-vf", vf, "-q:v", "5", outPath];
-const p = spawn(FFMPEG_BIN, args);
-p.on("error", () => resolve(null));
-p.on("exit", (code) => {
-if (code === 0) resolve({ cols, rows, count, interval, tileW: SPRITE_TILE_W, tileH: SPRITE_TILE_H });
-else resolve(null);
-});
-});
+const plan = planScrubFrames(duration);
+if (!plan) return null;
+const { count, interval } = plan;
+const indexes = Array.from({ length: count }, (_, i) => i);
+// A handful of these at once — fast seeks are cheap, but still real
+// ffmpeg processes, so this is bounded the same way file stat-ing and
+// thumbnailing are elsewhere in this file.
+const oks = await runWithConcurrency(indexes, 4, (i) =>
+grabScrubFrame(absPath, path.join(spriteDir, `${id}_${i}.jpg`), Math.min(duration - 0.1, i * interval))
+);
+const okCount = oks.filter(Boolean).length;
+if (okCount === 0) return null;
+return { count, interval, tileW: SCRUB_TILE_W, tileH: SCRUB_TILE_H };
 }
-// Backfill queue for videos scanned before this feature existed — bounded
-// the same way the fast-start remux queue is, so shipping this to an
-// existing library of hundreds of videos doesn't launch hundreds of
-// concurrent ffmpeg decodes the moment the app restarts.
+async function deleteScrubFrames(spriteDir: string, id: string) {
+// Sweeps the full possible index range rather than looking up how many
+// frames this particular video actually got — unlinking a path that was
+// never written is a harmless no-op (caught below), and this way a
+// video that predates a change to SCRUB_MAX_FRAMES still gets fully
+// cleaned up.
+await Promise.all(
+Array.from({ length: SCRUB_MAX_FRAMES }, (_, i) => fs.unlink(path.join(spriteDir, `${id}_${i}.jpg`)).catch(() => {}))
+);
+}
+// Generation runs entirely in the background, for brand-new files just as
+// much as for backfilling ones scanned before this feature existed — a
+// video's row/card appears (with its real thumbnail) the moment the scan
+// reaches it, and the scrub preview fills in silently a few seconds
+// later. Nothing about it should ever be able to hold up the initial
+// /api/videos response, which is exactly what generating synchronously
+// during the scan did before.
 const spriteInProgress = new Set<string>();
 let spriteQueueRunning = false;
 const spriteQueue: { paths: LibraryPaths; id: string; absPath: string; duration: number }[] = [];
@@ -460,13 +488,11 @@ if (spriteQueueRunning) return;
 spriteQueueRunning = true;
 try {
 while (spriteQueue.length) {
-const batch = spriteQueue.splice(0, 2);
-await Promise.all(
-batch.map(async ({ paths, id, absPath, duration }) => {
-if (spriteInProgress.has(id)) return;
+const { paths, id, absPath, duration } = spriteQueue.shift()!;
+if (spriteInProgress.has(id)) continue;
 spriteInProgress.add(id);
 try {
-const sprite = await generateScrubSprite(absPath, id, duration, paths.spriteDir);
+const sprite = await generateScrubFrames(absPath, id, duration, paths.spriteDir);
 const fresh = await loadCache(paths);
 if (fresh.entries[id]) {
 fresh.entries[id].scrubSprite = sprite;
@@ -475,8 +501,6 @@ await saveCache(paths, fresh);
 } finally {
 spriteInProgress.delete(id);
 }
-})
-);
 }
 } finally {
 spriteQueueRunning = false;
@@ -517,8 +541,7 @@ await walk(abs, base, out, depth + 1);
 const ext = path.extname(entry.name).slice(1).toLowerCase();
 if (VIDEO_EXTENSIONS.has(ext)) {
 const relativePath = path.relative(base, abs).split(path.sep).join("/");
-const segs = relativePath.split("/");
-const folder = segs.length > 1 ? segs[0] : "";
+const folder = immediateFolder(relativePath);
 out.push({ relativePath, abs, folder });
 }
 }
@@ -589,12 +612,9 @@ const processed = await runWithConcurrency(pending, 3, async (f) => {
 const meta = cache.ffmpegAvailable
 ? await probeMeta(f.abs)
 : { duration: 0, codec: null, width: null, height: null, bitRate: null, vfr: false, audioTracks: [], subtitleTracks: [] };
-const [hasThumbnail, scrubSprite] = cache.ffmpegAvailable
-? await Promise.all([
-generateThumbnail(f.abs, f.id, meta.duration, paths.thumbDir),
-generateScrubSprite(f.abs, f.id, meta.duration, paths.spriteDir),
-])
-: [false, null];
+const hasThumbnail = cache.ffmpegAvailable
+? await generateThumbnail(f.abs, f.id, meta.duration, paths.thumbDir)
+: false;
 // A forced rescan reprocesses every file, including ones that are
 // byte-for-byte unchanged (e.g. after a move) — but that shouldn't
 // throw away an optimized copy that's still sitting on disk and
@@ -608,7 +628,6 @@ size: f.stat.size,
 mtimeMs: f.stat.mtimeMs,
 duration: meta.duration,
 hasThumbnail,
-scrubSprite,
 codec: meta.codec,
 width: meta.width,
 height: meta.height,
@@ -620,9 +639,12 @@ audioTracks: meta.audioTracks,
 subtitleTracks: meta.subtitleTracks,
 };
 cache.entries[f.id] = entry;
-if (cache.ffmpegAvailable && !previouslyOptimized) {
+if (cache.ffmpegAvailable) {
+if (!previouslyOptimized) {
 const ext = path.extname(f.relativePath).slice(1).toLowerCase();
 scheduleFastStartCheck(paths, f.id, f.abs, ext, cache);
+}
+scheduleScrubSpriteBackfill(paths, f.id, f.abs, meta.duration, cache);
 }
 return toVideoItem(entry, f.folder, f.relativePath);
 });
@@ -633,7 +655,7 @@ for (const id of Object.keys(cache.entries)) {
 if (!seenIds.has(id)) {
 delete cache.entries[id];
 fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
-fs.unlink(path.join(paths.spriteDir, `${id}.jpg`)).catch(() => {});
+deleteScrubFrames(paths.spriteDir, id).catch(() => {});
 fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
 deleteAudioTrackFiles(paths, id).catch(() => {});
 }
@@ -653,6 +675,15 @@ return await scanInFlight;
 } finally {
 scanInFlight = null;
 }
+}
+/** The displayed "folder" for a video is the directory it actually sits
+* in — the immediate parent, not the top-level folder under the library
+* root — so a deeply nested show still shows its season folder rather
+* than the show's umbrella folder. */
+function immediateFolder(relativePath: string): string {
+const idx = relativePath.lastIndexOf("/");
+if (idx === -1) return "";
+return relativePath.slice(0, idx).split("/").pop() || "";
 }
 function toVideoItem(entry: CacheEntry, folder: string, relativePath: string): VideoItem {
 const ext = path.extname(relativePath).slice(1).toLowerCase();
@@ -721,10 +752,10 @@ const paths = await getPaths();
 if (!paths) return null;
 return path.join(paths.thumbDir, `${id}.jpg`);
 }
-export async function resolveScrubSpritePath(id: string): Promise<string | null> {
+export async function resolveScrubSpritePath(id: string, frame: number): Promise<string | null> {
 const paths = await getPaths();
 if (!paths) return null;
-return path.join(paths.spriteDir, `${id}.jpg`);
+return path.join(paths.spriteDir, `${id}_${frame}.jpg`);
 }
 /** Everything the manual-optimize API route needs to kick off a transcode
 * job: the original (never the already-optimized) file path, its known
@@ -803,7 +834,7 @@ const newRelativePath = finalDir ? `${finalDir}/${finalName}` : finalName;
 const newAbsPath = path.join(paths.root, newRelativePath);
 if (!newAbsPath.startsWith(paths.root)) throw new Error("Invalid path");
 if (newAbsPath === oldAbsPath) {
-const folder = newRelativePath.includes("/") ? newRelativePath.split("/")[0] : "";
+const folder = immediateFolder(newRelativePath);
 return toVideoItem(entry, folder, newRelativePath);
 }
 const collision = await fs.stat(newAbsPath).catch(() => null);
@@ -814,7 +845,7 @@ delete cache.pathIndex![entry.relativePath];
 entry.relativePath = newRelativePath;
 cache.pathIndex![newRelativePath] = id;
 await saveCache(paths, cache);
-const folder = newRelativePath.includes("/") ? newRelativePath.split("/")[0] : "";
+const folder = immediateFolder(newRelativePath);
 return toVideoItem(entry, folder, newRelativePath);
 }
 /** Deletes a video's file, its cached thumbnail, and any optimized copy. */
@@ -828,7 +859,7 @@ const absPath = path.join(paths.root, entry.relativePath);
 if (!absPath.startsWith(paths.root)) throw new Error("Invalid path");
 await fs.unlink(absPath);
 await fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
-await fs.unlink(path.join(paths.spriteDir, `${id}.jpg`)).catch(() => {});
+await deleteScrubFrames(paths.spriteDir, id);
 await fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
 await deleteAudioTrackFiles(paths, id);
 delete cache.entries[id];

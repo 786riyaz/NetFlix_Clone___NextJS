@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { VideoItem } from "@/lib/types";
-import { fmtDuration } from "@/lib/format";
+import { fmtDuration, displayName } from "@/lib/format";
 import { getSavedTime, isWatched } from "@/lib/progress";
 import OptimizeBadge from "./OptimizeBadge";
 import VideoActionsMenu from "./VideoActionsMenu";
@@ -67,7 +67,7 @@ layout === "row" ? "w-[42vw] xs:w-[220px] sm:w-[240px] shrink-0 snap-start" : "w
 hovering ? "sm:scale-[1.06] sm:shadow-card sm:z-10" : "scale-100 z-0"
 }`}
 style={{ transformOrigin: "center" }}
-title={video.name}
+title={displayName(video.name)}
 >
 <div className="relative aspect-video bg-gradient-to-br from-[#232326] to-[#0e0e10] overflow-hidden">
 {previewOn ? (
@@ -87,7 +87,7 @@ preload="none"
 {/* eslint-disable-next-line @next/next/no-img-element */}
 <img
 src={`/api/thumbnail/${video.id}`}
-alt={video.name}
+alt={displayName(video.name)}
 loading="lazy"
 onLoad={() => setImgLoaded(true)}
 className={`w-full h-full object-cover transition-opacity duration-300 ${
@@ -115,7 +115,7 @@ imgLoaded ? "opacity-100" : "opacity-0"
 )}
 {video.needsOptimize && (
 <div className="absolute top-1.5 left-1.5">
-<OptimizeBadge videoId={video.id} videoName={video.name} />
+<OptimizeBadge videoId={video.id} videoName={displayName(video.name)} />
 </div>
 )}
 <div className="absolute bottom-1.5 left-1.5">
@@ -145,7 +145,7 @@ hovering ? "opacity-100" : "opacity-0"
 </div>
 </div>
 <div className="px-2.5 py-2">
-<div className="text-[13px] font-medium truncate text-white/90">{video.name}</div>
+<div className="text-[13px] font-medium truncate text-white/90">{displayName(video.name)}</div>
 <div className="text-[11px] text-muted truncate">{video.folder || "Library root"}</div>
 </div>
 </div>

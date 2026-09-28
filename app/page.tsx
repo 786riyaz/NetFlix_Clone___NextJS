@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { VideoItem } from "@/lib/types";
-import { fmtDuration, fmtSize, fmtDate } from "@/lib/format";
+import { fmtDuration, fmtSize, fmtDate, displayName } from "@/lib/format";
 import { getAllProgressIds, getSavedTime, isWatched, getViewMode, setViewMode, ViewMode } from "@/lib/progress";
 import { pushToast } from "@/lib/toast";
 import Header, { SortKey } from "@/components/Header";
@@ -277,7 +277,7 @@ className="absolute inset-0 w-full h-full object-cover opacity-60"
 <div className="text-xs uppercase tracking-widest text-accent font-semibold mb-2">
 Recently added
 </div>
-<h1 className="text-2xl xs:text-3xl sm:text-5xl font-extrabold mb-3 leading-tight">{hero.name}</h1>
+<h1 className="text-2xl xs:text-3xl sm:text-5xl font-extrabold mb-3 leading-tight">{displayName(hero.name)}</h1>
 <div className="text-xs sm:text-sm text-muted mb-4 sm:mb-5">
 {fmtDuration(hero.duration)} • {fmtSize(hero.size)} • Added {fmtDate(hero.mtimeMs)}
 {hero.folder ? ` • ${hero.folder}` : ""}
