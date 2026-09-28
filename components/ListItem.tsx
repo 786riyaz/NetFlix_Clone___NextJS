@@ -81,7 +81,7 @@ imgLoaded ? "opacity-100" : "opacity-0"
 <div className="min-w-0 flex-1">
 <div className="flex items-center gap-2">
 <span className="text-[13px] sm:text-sm font-medium truncate text-white/90">{displayName(video.name)}</span>
-{video.needsOptimize && <OptimizeBadge videoId={video.id} videoName={displayName(video.name)} />}
+{superAdmin && video.needsOptimize && <OptimizeBadge videoId={video.id} videoName={displayName(video.name)} />}
 {watched && (
 <span className="shrink-0 w-4 h-4 rounded-full bg-accent flex items-center justify-center">
 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5">

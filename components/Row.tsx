@@ -11,6 +11,7 @@ superAdmin = false,
 onRenamed,
 onDeleted,
 folderPaths = [],
+onRemoveFromContinue,
 }: {
 title: string;
 videos: VideoItem[];
@@ -20,6 +21,7 @@ superAdmin?: boolean;
 onRenamed?: (v: VideoItem) => void;
 onDeleted?: (id: string) => void;
 folderPaths?: string[];
+onRemoveFromContinue?: (id: string) => void;
 }) {
 const scrollerRef = useRef<HTMLDivElement>(null);
 function scrollBy(delta: number) {
@@ -56,7 +58,7 @@ className="flex gap-2.5 overflow-x-auto no-scrollbar px-4 sm:px-10 py-1 snap-x s
 <div className="text-muted text-sm py-8">{emptyHint}</div>
 ) : (
 videos.map((v) => (
-<Card key={v.id} video={v} onPlay={onPlay} superAdmin={superAdmin} onRenamed={onRenamed} onDeleted={onDeleted} folderPaths={folderPaths} />
+<Card key={v.id} video={v} onPlay={onPlay} superAdmin={superAdmin} onRenamed={onRenamed} onDeleted={onDeleted} folderPaths={folderPaths} onRemoveFromContinue={onRemoveFromContinue} />
 ))
 )}
 </div>

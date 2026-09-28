@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { VideoItem } from "@/lib/types";
 import { fmtDuration, fmtSize, fmtDate, displayName } from "@/lib/format";
-import { getAllProgressIds, getSavedTime, isWatched, getViewMode, setViewMode, ViewMode } from "@/lib/progress";
+import { getAllProgressIds, clearProgress, getSavedTime, isWatched, getViewMode, setViewMode, ViewMode } from "@/lib/progress";
 import { pushToast } from "@/lib/toast";
 import Header, { SortKey } from "@/components/Header";
 import Row from "@/components/Row";
@@ -126,6 +126,12 @@ function handleRenamed(updated: VideoItem) {
 setVideos((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
 setQueue((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
 setPlaying((prev) => (prev && prev.id === updated.id ? updated : prev));
+}
+function handleRemoveFromContinue(id: string) {
+// Clears the saved resume position (and watched flag), so the video
+// drops out of Continue Watching and next starts from the beginning.
+clearProgress(id);
+setContinueIds((prev) => prev.filter((i) => i !== id));
 }
 function handleDeleted(id: string) {
 setVideos((prev) => prev.filter((v) => v.id !== id));
@@ -303,6 +309,7 @@ title="Continue Watching"
 videos={continueWatching}
 onPlay={(v) => handlePlay(v, continueWatching)}
 emptyHint="Nothing in progress — start watching something below."
+onRemoveFromContinue={handleRemoveFromContinue}
 superAdmin={superAdmin}
 onRenamed={handleRenamed}
 onDeleted={handleDeleted}

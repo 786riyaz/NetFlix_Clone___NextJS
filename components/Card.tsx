@@ -13,6 +13,7 @@ superAdmin = false,
 onRenamed,
 onDeleted,
 folderPaths = [],
+onRemoveFromContinue,
 }: {
 video: VideoItem;
 onPlay: (v: VideoItem) => void;
@@ -21,6 +22,7 @@ superAdmin?: boolean;
 onRenamed?: (v: VideoItem) => void;
 onDeleted?: (id: string) => void;
 folderPaths?: string[];
+onRemoveFromContinue?: (id: string) => void;
 }) {
 const [hovering, setHovering] = useState(false);
 const [previewOn, setPreviewOn] = useState(false);
@@ -106,6 +108,24 @@ imgLoaded ? "opacity-100" : "opacity-0"
 <div className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/70 text-[11px] font-medium tabular-nums">
 {fmtDuration(video.duration)}
 </div>
+{onRemoveFromContinue && (
+<button
+type="button"
+title="Remove from Continue Watching"
+aria-label="Remove from Continue Watching"
+onClick={(e) => {
+e.stopPropagation();
+e.preventDefault();
+onRemoveFromContinue(video.id);
+}}
+onKeyDown={(e) => e.stopPropagation()}
+className="absolute top-1.5 right-1.5 z-10 w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-black/70 hover:bg-black/90 flex items-center justify-center sm:opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity focus-ring"
+>
+<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
+<path d="M6 6l12 12M18 6 6 18" />
+</svg>
+</button>
+)}
 {watched && (
 <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-accent flex items-center justify-center">
 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
@@ -113,7 +133,7 @@ imgLoaded ? "opacity-100" : "opacity-0"
 </svg>
 </div>
 )}
-{video.needsOptimize && (
+{superAdmin && video.needsOptimize && (
 <div className="absolute top-1.5 left-1.5">
 <OptimizeBadge videoId={video.id} videoName={displayName(video.name)} />
 </div>
