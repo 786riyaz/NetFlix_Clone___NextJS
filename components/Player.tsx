@@ -2,1134 +2,1086 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { VideoItem } from "@/lib/types";
 import { fmtDuration, displayName } from "@/lib/format";
-import {
-getSavedTime,
-setSavedTime,
-clearProgress,
-markWatched,
-getVolume,
-setVolume as persistVolume,
-getMutePreference,
-setMutePreference,
-} from "@/lib/progress";
+import { getSavedTime, setSavedTime, clearProgress, markWatched, getVolume, setVolume as persistVolume, getMutePreference, setMutePreference } from "@/lib/progress";
 import ManageControls from "./ManageControls";
 import DownloadButton from "./DownloadButton";
 import { languageName } from "@/lib/languages";
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 export default function Player({
-video,
-queue,
-onClose,
-onPlayVideo,
-superAdmin = false,
-onRenamed,
-onDeleted,
-folderPaths = [],
+  video,
+  queue,
+  onClose,
+  onPlayVideo,
+  superAdmin = false,
+  onRenamed,
+  onDeleted,
+  folderPaths = [],
 }: {
-video: VideoItem;
-queue: VideoItem[];
-onClose: () => void;
-onPlayVideo: (v: VideoItem) => void;
-superAdmin?: boolean;
-onRenamed?: (v: VideoItem) => void;
-onDeleted?: (id: string) => void;
-folderPaths?: string[];
+  video: VideoItem;
+  queue: VideoItem[];
+  onClose: () => void;
+  onPlayVideo: (v: VideoItem) => void;
+  superAdmin?: boolean;
+  onRenamed?: (v: VideoItem) => void;
+  onDeleted?: (id: string) => void;
+  folderPaths?: string[];
 }) {
-const queueIdx = queue.findIndex((v) => v.id === video.id);
-const prevVideo = queueIdx > 0 ? queue[queueIdx - 1] : null;
-const nextVideo = queueIdx >= 0 && queueIdx < queue.length - 1 ? queue[queueIdx + 1] : null;
-const videoRef = useRef<HTMLVideoElement>(null);
-// Used for fullscreen specifically — needs to be the whole player (video +
-// controls), not just videoRef's parent, or entering fullscreen would hide
-// the controls entirely instead of just filling the screen with them.
-const playerRootRef = useRef<HTMLDivElement>(null);
-// Audio track selection. Switching tracks means swapping the <video> src
-// (see videoSrc below) — the browser reloads the resource, so we stash
-// where playback was and resume there once the new source is ready,
-// rather than resetting to 0:00 every time someone changes language.
-const [audioTrackIndex, setAudioTrackIndex] = useState(0);
-const [audioMenuOpen, setAudioMenuOpen] = useState(false);
-const [switchingAudio, setSwitchingAudio] = useState(false);
-const [audioSwitchError, setAudioSwitchError] = useState<string | null>(null);
-const pendingResumeRef = useRef<{ time: number; playing: boolean } | null>(null);
-const videoSrc =
-audioTrackIndex > 0 ? `/api/video/${video.id}?track=${audioTrackIndex}` : `/api/video/${video.id}`;
-// Subtitles: only text-based tracks (SRT/ASS/etc, converted server-side
-// to WebVTT) can actually be shown — image-based ones (PGS/VobSub) are
-// listed as unavailable rather than silently omitted, so someone who
-// saw 4 subtitle languages in VLC understands why only some show up here.
-const convertibleSubtitles = video.subtitleTracks?.filter((t) => t.convertible) ?? [];
-const unconvertibleSubtitles = video.subtitleTracks?.filter((t) => !t.convertible) ?? [];
-const [subtitleIndex, setSubtitleIndex] = useState<number | null>(null);
-const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
-// The player is a `fixed` full-screen overlay, which only covers the page
-// visually — without this, the page underneath stays scrollable the whole
-// time the player is open. Scrolling it (even by accident, e.g. a stray
-// wheel/trackpad gesture) is invisible while the player is up, but shows
-// up as a surprising scroll-position jump on the grid behind it the
-// moment the player closes. Locked here for the player's whole lifetime
-// (mount to unmount), not per-video, so switching tracks via Next/Prev
-// doesn't flicker it on and off.
-useEffect(() => {
-const original = document.body.style.overflow;
-document.body.style.overflow = "hidden";
-return () => {
-document.body.style.overflow = original;
-};
-}, []);
-useEffect(() => {
-setAudioTrackIndex(0);
-setAudioMenuOpen(false);
-setSwitchingAudio(false);
-setAudioSwitchError(null);
-setSubtitleIndex(null);
-setSubtitleMenuOpen(false);
-}, [video.id]);
-// Reflect the chosen subtitle (or "off") onto the video element's real
-// TextTrack objects — index-matched to the order convertibleSubtitles
-// was rendered in, since that's the same order the <track> children
-// appear in the DOM.
-useEffect(() => {
-const v = videoRef.current;
-if (!v) return;
-for (let i = 0; i < v.textTracks.length; i++) {
-v.textTracks[i].mode = convertibleSubtitles[i]?.index === subtitleIndex ? "showing" : "hidden";
-}
-}, [subtitleIndex, video.id, convertibleSubtitles.length]);
-useEffect(() => {
-if (!subtitleMenuOpen) return;
-function onDocClick() {
-setSubtitleMenuOpen(false);
-}
-document.addEventListener("click", onDocClick);
-return () => document.removeEventListener("click", onDocClick);
-}, [subtitleMenuOpen]);
-async function selectAudioTrack(idx: number) {
-if (idx === audioTrackIndex) {
-setAudioMenuOpen(false);
-return;
-}
-const v = videoRef.current;
-pendingResumeRef.current = { time: v?.currentTime || 0, playing: !!v && !v.paused };
-setAudioMenuOpen(false);
-setAudioSwitchError(null);
-if (idx === 0) {
-// The default track is always already there — no remux to wait for.
-setAudioTrackIndex(0);
-return;
-}
-setSwitchingAudio(true);
-try {
-let status = await fetch(`/api/audio-track/${video.id}?track=${idx}`).then((r) => r.json());
-if (status.state !== "done") {
-await fetch(`/api/audio-track/${video.id}`, {
-method: "POST",
-headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ trackIndex: idx }),
-});
-// Fast stream-copy remux — typically done in a few seconds even for
-// large files, but poll rather than assume.
-for (let i = 0; i < 60; i++) {
-await new Promise((r) => setTimeout(r, 1000));
-status = await fetch(`/api/audio-track/${video.id}?track=${idx}`).then((r) => r.json());
-if (status.state === "done" || status.state === "error") break;
-}
-}
-if (status.state === "done") {
-setAudioTrackIndex(idx);
-} else {
-setSwitchingAudio(false);
-setAudioSwitchError(status.error || "Couldn't switch audio track.");
-pendingResumeRef.current = null;
-}
-} catch {
-setSwitchingAudio(false);
-setAudioSwitchError("Couldn't switch audio track.");
-pendingResumeRef.current = null;
-}
-}
-const [playing, setPlaying] = useState(false);
-const [current, setCurrent] = useState(0);
-const [duration, setDuration] = useState(video.duration || 0);
-const [buffered, setBuffered] = useState(0);
-// Buffering spinner: shown on initial load and whenever the browser stalls
-// mid-playback (e.g. slow disk read, seeking into an unbuffered region).
-const [loading, setLoading] = useState(true);
-// Brief center icon "pulse" shown when play/pause is toggled by clicking
-// the video itself, mirroring the familiar YouTube/Netflix feedback.
-const [clickFeedback, setClickFeedback] = useState<"play" | "pause" | null>(null);
-const clickFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-const [seekFeedback, setSeekFeedback] = useState<"fwd" | "back" | null>(null);
-const seekFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-// Custom timeline scrubber: dragPct/hoverPct drive the fill+thumb position
-// and the live timestamp tooltip; the actual video.currentTime write during
-// a drag is throttled to one per animation frame via seekRafRef so fast
-// pointer movement over a network-streamed file doesn't flood seeks.
-const [scrubbing, setScrubbing] = useState(false);
-const [dragPct, setDragPct] = useState<number | null>(null);
-const [hoverPct, setHoverPct] = useState<number | null>(null);
-const seekBarRef = useRef<HTMLDivElement>(null);
-const seekRafRef = useRef<number | null>(null);
-const pendingSeekPctRef = useRef<number | null>(null);
-const [showShortcuts, setShowShortcuts] = useState(false);
-const [volume, setVolumeState] = useState(1);
-// Videos always start muted — the person clicks the volume/unmute button
-// to turn sound on. This also keeps autoplay reliable across browsers,
-// most of which block unmuted autoplay entirely.
-const [muted, setMuted] = useState(true);
-const [speed, setSpeed] = useState(1);
-const [showControls, setShowControls] = useState(true);
-const [autonext, setAutonext] = useState(true);
-const [savedToast, setSavedToast] = useState(false);
-const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-const autosaveTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-useEffect(() => {
-const v = videoRef.current;
-if (!v) return;
-const startAt = getSavedTime(video.id);
-v.currentTime = startAt || 0;
-const vol = getVolume();
-v.volume = vol || 1;
-setVolumeState(vol || 1);
-// Every video still has to start muted — browsers block unmuted
-// autoplay without a prior user gesture, and forcing this wrong would
-// make autoplay silently fail. But right after playback actually
-// starts (which itself doesn't need a fresh gesture once the video is
-// already rolling), we honor whatever the person chose last time —
-// so once they've unmuted once, every video after that just plays
-// with sound already on instead of making them hit unmute every time.
-v.muted = true;
-setMuted(true);
-v.play()
-.then(() => {
-if (!getMutePreference()) {
-v.muted = false;
-setMuted(false);
-}
-})
-.catch(() => {});
-}, [video.id]);
-useEffect(() => {
-autosaveTimer.current = setInterval(() => {
-const v = videoRef.current;
-if (v && !v.paused) setSavedTime(video.id, v.currentTime);
-}, 5000);
-return () => {
-if (autosaveTimer.current) clearInterval(autosaveTimer.current);
-};
-}, [video.id]);
-useEffect(() => {
-return () => {
-const v = videoRef.current;
-if (v && v.currentTime > 2) setSavedTime(video.id, v.currentTime);
-};
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, [video.id]);
-useEffect(() => {
-return () => {
-if (seekRafRef.current != null) cancelAnimationFrame(seekRafRef.current);
-};
-}, []);
-const resetHideTimer = useCallback(() => {
-setShowControls(true);
-if (hideTimer.current) clearTimeout(hideTimer.current);
-hideTimer.current = setTimeout(() => {
-if (!videoRef.current?.paused) setShowControls(false);
-}, 2800);
-}, []);
-useEffect(() => {
-resetHideTimer();
-return () => {
-if (hideTimer.current) clearTimeout(hideTimer.current);
-};
-}, [resetHideTimer]);
-// Close the audio-language menu on any click outside it (standard
-// popover behavior) rather than leaving it open until something else
-// happens to re-render the component.
-useEffect(() => {
-if (!audioMenuOpen) return;
-function onDocClick() {
-setAudioMenuOpen(false);
-}
-document.addEventListener("click", onDocClick);
-return () => document.removeEventListener("click", onDocClick);
-}, [audioMenuOpen]);
-function togglePlay() {
-const v = videoRef.current;
-if (!v) return;
-if (v.paused) v.play();
-else v.pause();
-}
-function handleVideoClick() {
-resetHideTimer();
-const v = videoRef.current;
-if (!v) return;
-const willPlay = v.paused;
-togglePlay();
-setClickFeedback(willPlay ? "play" : "pause");
-if (clickFeedbackTimer.current) clearTimeout(clickFeedbackTimer.current);
-clickFeedbackTimer.current = setTimeout(() => setClickFeedback(null), 550);
-}
-// Netflix/YouTube-style double-tap-to-seek: single click toggles
-// play/pause, double click on the left/right half skips ±10s instead.
-// A single click's own action is *delayed* just long enough to see
-// whether a second click follows — if it does, the single-click action
-// (play/pause) is cancelled and the double-click seek runs instead, so
-// double-clicking never flickers play/pause first.
-const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-const pendingClicks = useRef(0);
-function handleVideoAreaClick(e: React.MouseEvent<HTMLDivElement>) {
-const clientX = e.clientX;
-const rect = e.currentTarget.getBoundingClientRect();
-// On touch devices specifically, a tap while controls are hidden should
-// just reveal them — not also toggle play/pause. Someone reaching for a
-// specific control (mute, subtitles, fullscreen, whatever) shouldn't have
-// their very first tap accidentally pause the video before they can even
-// see the button they meant to press. Once controls are visible, tapping
-// the video area goes back to normal (toggles play, same as a second
-// tap on a real button would). Desktop/mouse is untouched — coarse
-// pointer detection means this whole branch never applies there.
-const isTouch = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
-const firstTouchRevealOnly = isTouch && !showControls;
-pendingClicks.current += 1;
-if (pendingClicks.current === 1) {
-clickTimer.current = setTimeout(() => {
-if (pendingClicks.current === 1) {
-if (firstTouchRevealOnly) {
-resetHideTimer();
-} else {
-handleVideoClick();
-}
-}
-pendingClicks.current = 0;
-}, 280);
-} else {
-if (clickTimer.current) clearTimeout(clickTimer.current);
-pendingClicks.current = 0;
-const isRightHalf = clientX - rect.left > rect.width / 2;
-skip(isRightHalf ? 10 : -10);
-resetHideTimer();
-setSeekFeedback(isRightHalf ? "fwd" : "back");
-if (seekFeedbackTimer.current) clearTimeout(seekFeedbackTimer.current);
-seekFeedbackTimer.current = setTimeout(() => setSeekFeedback(null), 500);
-}
-}
-function skip(delta: number) {
-const v = videoRef.current;
-if (!v) return;
-v.currentTime = Math.max(0, Math.min((v.duration || 0) - 0.5, v.currentTime + delta));
-}
-function pctFromClientX(clientX: number) {
-const el = seekBarRef.current;
-if (!el) return 0;
-const rect = el.getBoundingClientRect();
-const ratio = rect.width ? (clientX - rect.left) / rect.width : 0;
-return Math.min(100, Math.max(0, ratio * 100));
-}
-// Throttles the actual video seek to once per animation frame while
-// dragging, so the timeline stays perfectly smooth even while scrubbing
-// fast over a long video served through the tunnel/proxy.
-function queueScrubSeek(p: number) {
-pendingSeekPctRef.current = p;
-if (seekRafRef.current != null) return;
-seekRafRef.current = requestAnimationFrame(() => {
-seekRafRef.current = null;
-const v = videoRef.current;
-const pp = pendingSeekPctRef.current;
-if (v && v.duration && pp != null) {
-v.currentTime = (pp / 100) * v.duration;
-setCurrent(v.currentTime);
-}
-});
-}
-function handleScrubPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-e.stopPropagation();
-if (!duration) return;
-seekBarRef.current?.setPointerCapture(e.pointerId);
-setScrubbing(true);
-setHoverPct(null);
-// Keep controls fully visible for the whole drag — don't let the
-// auto-hide timer fire mid-scrub.
-setShowControls(true);
-if (hideTimer.current) clearTimeout(hideTimer.current);
-const p = pctFromClientX(e.clientX);
-setDragPct(p);
-queueScrubSeek(p);
-}
-function handleScrubPointerMove(e: React.PointerEvent<HTMLDivElement>) {
-if (scrubbing) {
-const p = pctFromClientX(e.clientX);
-setDragPct(p);
-queueScrubSeek(p);
-} else {
-setHoverPct(pctFromClientX(e.clientX));
-}
-}
-function handleScrubPointerUp(e: React.PointerEvent<HTMLDivElement>) {
-if (!scrubbing) return;
-seekBarRef.current?.releasePointerCapture(e.pointerId);
-const p = dragPct;
-if (p != null) {
-const v = videoRef.current;
-if (v && v.duration) {
-v.currentTime = (p / 100) * v.duration;
-setCurrent(v.currentTime);
-}
-}
-setScrubbing(false);
-setDragPct(null);
-resetHideTimer();
-}
-function handleVolume(val: number) {
-const v = videoRef.current;
-if (!v) return;
-v.volume = val;
-v.muted = val === 0;
-setVolumeState(val);
-setMuted(val === 0);
-persistVolume(val);
-setMutePreference(val === 0);
-}
-function toggleMute() {
-const v = videoRef.current;
-if (!v) return;
-const next = !v.muted;
-v.muted = next;
-// Coming out of mute at 0 volume would still be silent — give it a
-// sensible level so clicking unmute is never a no-op.
-if (!next && v.volume === 0) {
-v.volume = 1;
-setVolumeState(1);
-persistVolume(1);
-}
-setMuted(next);
-setMutePreference(next);
-}
-async function toggleFullscreen() {
-try {
-if (!document.fullscreenElement) {
-await playerRootRef.current?.requestFullscreen();
-} else {
-await document.exitFullscreen();
-}
-} catch {}
-}
-async function togglePip() {
-try {
-if (document.pictureInPictureElement) {
-await document.exitPictureInPicture();
-} else if (videoRef.current) {
-await videoRef.current.requestPictureInPicture();
-}
-} catch {
-alert("Picture-in-picture isn't supported in this browser.");
-}
-}
-function handleSavePosition() {
-const v = videoRef.current;
-if (!v) return;
-setSavedTime(video.id, v.currentTime);
-setSavedToast(true);
-setTimeout(() => setSavedToast(false), 1500);
-}
-function handleResetPosition() {
-clearProgress(video.id);
-if (videoRef.current) videoRef.current.currentTime = 0;
-}
-function playNext() {
-if (nextVideo) onPlayVideo(nextVideo);
-else onClose();
-}
-function playPrevious() {
-if (prevVideo) onPlayVideo(prevVideo);
-}
-function seekToPercent(pct: number) {
-const v = videoRef.current;
-if (!v || !v.duration) return;
-v.currentTime = (pct / 100) * v.duration;
-resetHideTimer();
-}
-useEffect(() => {
-function onKey(e: KeyboardEvent) {
-if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-switch (e.key) {
-case " ":
-case "k":
-e.preventDefault();
-togglePlay();
-break;
-case "ArrowRight":
-skip(10);
-break;
-case "ArrowLeft":
-skip(-10);
-break;
-case "f":
-toggleFullscreen();
-break;
-case "m":
-toggleMute();
-break;
-case "c":
-case "C":
-if (convertibleSubtitles.length > 0) {
-setSubtitleIndex((cur) => (cur === null ? convertibleSubtitles[0].index : null));
-}
-break;
-case "b":
-case "B":
-if (video.audioTracks && video.audioTracks.length > 1) {
-const tracks = video.audioTracks;
-const curIdx = tracks.findIndex((t) => t.index === audioTrackIndex);
-const nextTrack = tracks[(curIdx + 1) % tracks.length];
-selectAudioTrack(nextTrack.index);
-}
-break;
-case "n":
-case "N":
-playNext();
-break;
-case "p":
-case "P":
-playPrevious();
-break;
-case "Home": {
-const v = videoRef.current;
-if (v) v.currentTime = 0;
-resetHideTimer();
-break;
-}
-case "End": {
-const v = videoRef.current;
-if (v && v.duration) v.currentTime = Math.max(0, v.duration - 0.5);
-resetHideTimer();
-break;
-}
-case "0":
-case "1":
-case "2":
-case "3":
-case "4":
-case "5":
-case "6":
-case "7":
-case "8":
-case "9":
-// Standard YouTube-style shortcut: number key N jumps to N*10% of
-// the video (0 = start, 9 = 90%).
-seekToPercent(Number(e.key) * 10);
-break;
-case "Escape":
-if (showShortcuts) setShowShortcuts(false);
-else onClose();
-break;
-}
-}
-window.addEventListener("keydown", onKey);
-return () => window.removeEventListener("keydown", onKey);
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, [showShortcuts, video.id, nextVideo, prevVideo, convertibleSubtitles.length, audioTrackIndex]);
-const pct = duration ? (current / duration) * 100 : 0;
-return (
-<div
-ref={playerRootRef}
-className="fixed inset-0 z-50 bg-black flex flex-col"
-onMouseMove={resetHideTimer}
-onClick={resetHideTimer}
->
-<div
-className="relative flex-1 flex items-center justify-center overflow-hidden"
-onClick={handleVideoAreaClick}
->
-<video
-ref={videoRef}
-className="w-full h-full max-h-screen bg-black"
-src={videoSrc}
-muted
-onPlay={() => setPlaying(true)}
-onPause={() => setPlaying(false)}
-onTimeUpdate={(e) => {
-const v = e.currentTarget;
-setCurrent(v.currentTime);
-if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
-if (v.duration && v.currentTime > v.duration - 3) markWatched(video.id);
-}}
-onLoadedMetadata={(e) => {
-setDuration(e.currentTarget.duration);
-const pending = pendingResumeRef.current;
-if (pending) {
-e.currentTarget.currentTime = pending.time;
-if (pending.playing) e.currentTarget.play().catch(() => {});
-pendingResumeRef.current = null;
-setSwitchingAudio(false);
-}
-}}
-onEnded={() => {
-markWatched(video.id);
-if (autonext) playNext();
-}}
-onWaiting={() => setLoading(true)}
-onPlaying={() => setLoading(false)}
-onCanPlay={() => setLoading(false)}
-onLoadStart={() => setLoading(true)}
-onSeeking={() => setLoading(true)}
-onSeeked={() => setLoading(false)}
-autoPlay
-playsInline
->
-{convertibleSubtitles.map((t) => (
-<track
-key={t.index}
-kind="subtitles"
-src={`/api/subtitle/${video.id}?track=${t.index}`}
-srcLang={t.language || "und"}
-label={languageName(t.language, t.title, t.index)}
-/>
-))}
-</video>
-{/* Buffering spinner */}
-{(loading || switchingAudio) && (
-<div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-2">
-<div className="w-12 h-12 rounded-full border-[3px] border-white/25 border-t-white animate-spin" />
-{switchingAudio && <div className="text-xs text-white/80 bg-black/60 px-2.5 py-1 rounded">Switching audio…</div>}
-</div>
-)}
-{/* Click-to-toggle feedback pulse */}
-{clickFeedback && (
-<div
-key={Date.now()}
-className="absolute inset-0 m-auto w-16 h-16 rounded-full bg-black/50 flex items-center justify-center pointer-events-none animate-clickpulse"
->
-{clickFeedback === "play" ? (
-<svg width="26" height="26" viewBox="0 0 24 24" fill="#fff">
-<path d="M8 5v14l11-7z" />
-</svg>
-) : (
-<svg width="26" height="26" viewBox="0 0 24 24" fill="#fff">
-<path d="M7 5h4v14H7zM13 5h4v14h-4z" />
-</svg>
-)}
-</div>
-)}
-{/* Double-tap seek feedback — flashes on whichever half was tapped */}
-{seekFeedback && (
-<div
-key={Date.now()}
-className={`absolute inset-y-0 ${
-seekFeedback === "fwd" ? "right-0" : "left-0"
-} w-1/2 flex items-center ${
-seekFeedback === "fwd" ? "justify-end pr-8 sm:pr-16" : "justify-start pl-8 sm:pl-16"
-} pointer-events-none`}
->
-<div className="flex flex-col items-center gap-1 bg-black/40 rounded-full w-20 h-20 justify-center animate-clickpulse">
-{seekFeedback === "fwd" ? <FwdIcon large /> : <BackIcon large />}
-</div>
-</div>
-)}
-</div>
-{/* Top bar, center play button, toasts, and bottom controls all live
+  const queueIdx = queue.findIndex((v) => v.id === video.id);
+  const prevVideo = queueIdx > 0 ? queue[queueIdx - 1] : null;
+  const nextVideo = queueIdx >= 0 && queueIdx < queue.length - 1 ? queue[queueIdx + 1] : null;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  // Used for fullscreen specifically — needs to be the whole player (video +
+  // controls), not just videoRef's parent, or entering fullscreen would hide
+  // the controls entirely instead of just filling the screen with them.
+  const playerRootRef = useRef<HTMLDivElement>(null);
+  // Audio track selection. Switching tracks means swapping the <video> src
+  // (see videoSrc below) — the browser reloads the resource, so we stash
+  // where playback was and resume there once the new source is ready,
+  // rather than resetting to 0:00 every time someone changes language.
+  const [audioTrackIndex, setAudioTrackIndex] = useState(0);
+  const [audioMenuOpen, setAudioMenuOpen] = useState(false);
+  const [switchingAudio, setSwitchingAudio] = useState(false);
+  const [audioSwitchError, setAudioSwitchError] = useState<string | null>(null);
+  const pendingResumeRef = useRef<{ time: number; playing: boolean } | null>(null);
+  const videoSrc = audioTrackIndex > 0 ? `/api/video/${video.id}?track=${audioTrackIndex}` : `/api/video/${video.id}`;
+  // Subtitles: only text-based tracks (SRT/ASS/etc, converted server-side
+  // to WebVTT) can actually be shown — image-based ones (PGS/VobSub) are
+  // listed as unavailable rather than silently omitted, so someone who
+  // saw 4 subtitle languages in VLC understands why only some show up here.
+  const convertibleSubtitles = video.subtitleTracks?.filter((t) => t.convertible) ?? [];
+  const unconvertibleSubtitles = video.subtitleTracks?.filter((t) => !t.convertible) ?? [];
+  const [subtitleIndex, setSubtitleIndex] = useState<number | null>(null);
+  const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
+  // The player is a `fixed` full-screen overlay, which only covers the page
+  // visually — without this, the page underneath stays scrollable the whole
+  // time the player is open. Scrolling it (even by accident, e.g. a stray
+  // wheel/trackpad gesture) is invisible while the player is up, but shows
+  // up as a surprising scroll-position jump on the grid behind it the
+  // moment the player closes. Locked here for the player's whole lifetime
+  // (mount to unmount), not per-video, so switching tracks via Next/Prev
+  // doesn't flicker it on and off.
+  useEffect(() => {
+    const original = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = original;
+    };
+  }, []);
+  useEffect(() => {
+    setAudioTrackIndex(0);
+    setAudioMenuOpen(false);
+    setSwitchingAudio(false);
+    setAudioSwitchError(null);
+    setSubtitleIndex(null);
+    setSubtitleMenuOpen(false);
+  }, [video.id]);
+  // Reflect the chosen subtitle (or "off") onto the video element's real
+  // TextTrack objects — index-matched to the order convertibleSubtitles
+  // was rendered in, since that's the same order the <track> children
+  // appear in the DOM.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    for (let i = 0; i < v.textTracks.length; i++) {
+      v.textTracks[i].mode = convertibleSubtitles[i]?.index === subtitleIndex ? "showing" : "hidden";
+    }
+  }, [subtitleIndex, video.id, convertibleSubtitles.length]);
+  useEffect(() => {
+    if (!subtitleMenuOpen) return;
+    function onDocClick() {
+      setSubtitleMenuOpen(false);
+    }
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [subtitleMenuOpen]);
+  async function selectAudioTrack(idx: number) {
+    if (idx === audioTrackIndex) {
+      setAudioMenuOpen(false);
+      return;
+    }
+    const v = videoRef.current;
+    pendingResumeRef.current = { time: v?.currentTime || 0, playing: !!v && !v.paused };
+    setAudioMenuOpen(false);
+    setAudioSwitchError(null);
+    if (idx === 0) {
+      // The default track is always already there — no remux to wait for.
+      setAudioTrackIndex(0);
+      return;
+    }
+    setSwitchingAudio(true);
+    try {
+      let status = await fetch(`/api/audio-track/${video.id}?track=${idx}`).then((r) => r.json());
+      if (status.state !== "done") {
+        await fetch(`/api/audio-track/${video.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ trackIndex: idx }),
+        });
+        // Fast stream-copy remux — typically done in a few seconds even for
+        // large files, but poll rather than assume.
+        for (let i = 0; i < 60; i++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          status = await fetch(`/api/audio-track/${video.id}?track=${idx}`).then((r) => r.json());
+          if (status.state === "done" || status.state === "error") break;
+        }
+      }
+      if (status.state === "done") {
+        setAudioTrackIndex(idx);
+      } else {
+        setSwitchingAudio(false);
+        setAudioSwitchError(status.error || "Couldn't switch audio track.");
+        pendingResumeRef.current = null;
+      }
+    } catch {
+      setSwitchingAudio(false);
+      setAudioSwitchError("Couldn't switch audio track.");
+      pendingResumeRef.current = null;
+    }
+  }
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(video.duration || 0);
+  const [buffered, setBuffered] = useState(0);
+  // Buffering spinner: shown on initial load and whenever the browser stalls
+  // mid-playback (e.g. slow disk read, seeking into an unbuffered region).
+  const [loading, setLoading] = useState(true);
+  // Brief center icon "pulse" shown when play/pause is toggled by clicking
+  // the video itself, mirroring the familiar YouTube/Netflix feedback.
+  const [clickFeedback, setClickFeedback] = useState<"play" | "pause" | null>(null);
+  const clickFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [seekFeedback, setSeekFeedback] = useState<"fwd" | "back" | null>(null);
+  const seekFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Custom timeline scrubber: dragPct/hoverPct drive the fill+thumb position
+  // and the live timestamp tooltip; the actual video.currentTime write during
+  // a drag is throttled to one per animation frame via seekRafRef so fast
+  // pointer movement over a network-streamed file doesn't flood seeks.
+  const [scrubbing, setScrubbing] = useState(false);
+  const [dragPct, setDragPct] = useState<number | null>(null);
+  const [hoverPct, setHoverPct] = useState<number | null>(null);
+  const seekBarRef = useRef<HTMLDivElement>(null);
+  const seekRafRef = useRef<number | null>(null);
+  const pendingSeekPctRef = useRef<number | null>(null);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [volume, setVolumeState] = useState(1);
+  // Videos always start muted — the person clicks the volume/unmute button
+  // to turn sound on. This also keeps autoplay reliable across browsers,
+  // most of which block unmuted autoplay entirely.
+  const [muted, setMuted] = useState(true);
+  const [speed, setSpeed] = useState(1);
+  const [showControls, setShowControls] = useState(true);
+  const [autonext, setAutonext] = useState(true);
+  const [savedToast, setSavedToast] = useState(false);
+  const [showUpNext, setShowUpNext] = useState(true);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autosaveTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const startAt = getSavedTime(video.id);
+    v.currentTime = startAt || 0;
+    // "Up next" briefly flashes whenever a new video starts (including
+    // autoplay into the next episode), then gets out of the way instead of
+    // sitting on screen for the whole runtime.
+    setShowUpNext(true);
+    const upNextTimer = setTimeout(() => setShowUpNext(false), 2000);
+    const vol = getVolume();
+    v.volume = vol || 1;
+    setVolumeState(vol || 1);
+    // Every video still has to start muted — browsers block unmuted
+    // autoplay without a prior user gesture, and forcing this wrong would
+    // make autoplay silently fail. But right after playback actually
+    // starts (which itself doesn't need a fresh gesture once the video is
+    // already rolling), we honor whatever the person chose last time —
+    // so once they've unmuted once, every video after that just plays
+    // with sound already on instead of making them hit unmute every time.
+    v.muted = true;
+    setMuted(true);
+    v.play()
+      .then(() => {
+        if (!getMutePreference()) {
+          v.muted = false;
+          setMuted(false);
+        }
+      })
+      .catch(() => {});
+    return () => clearTimeout(upNextTimer);
+  }, [video.id]);
+  useEffect(() => {
+    autosaveTimer.current = setInterval(() => {
+      const v = videoRef.current;
+      if (v && !v.paused) setSavedTime(video.id, v.currentTime);
+    }, 5000);
+    return () => {
+      if (autosaveTimer.current) clearInterval(autosaveTimer.current);
+    };
+  }, [video.id]);
+  useEffect(() => {
+    return () => {
+      const v = videoRef.current;
+      if (v && v.currentTime > 2) setSavedTime(video.id, v.currentTime);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [video.id]);
+  useEffect(() => {
+    return () => {
+      if (seekRafRef.current != null) cancelAnimationFrame(seekRafRef.current);
+    };
+  }, []);
+  const resetHideTimer = useCallback(() => {
+    setShowControls(true);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => {
+      if (!videoRef.current?.paused) setShowControls(false);
+    }, 2800);
+  }, []);
+  useEffect(() => {
+    resetHideTimer();
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
+  }, [resetHideTimer]);
+  // Close the audio-language menu on any click outside it (standard
+  // popover behavior) rather than leaving it open until something else
+  // happens to re-render the component.
+  useEffect(() => {
+    if (!audioMenuOpen) return;
+    function onDocClick() {
+      setAudioMenuOpen(false);
+    }
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [audioMenuOpen]);
+  function togglePlay() {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) v.play();
+    else v.pause();
+  }
+  function handleVideoClick() {
+    resetHideTimer();
+    const v = videoRef.current;
+    if (!v) return;
+    const willPlay = v.paused;
+    togglePlay();
+    setClickFeedback(willPlay ? "play" : "pause");
+    if (clickFeedbackTimer.current) clearTimeout(clickFeedbackTimer.current);
+    clickFeedbackTimer.current = setTimeout(() => setClickFeedback(null), 550);
+  }
+  // Netflix/YouTube-style double-tap-to-seek: single click toggles
+  // play/pause, double click on the left/right half skips ±10s instead.
+  // A single click's own action is *delayed* just long enough to see
+  // whether a second click follows — if it does, the single-click action
+  // (play/pause) is cancelled and the double-click seek runs instead, so
+  // double-clicking never flickers play/pause first.
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingClicks = useRef(0);
+  function handleVideoAreaClick(e: React.MouseEvent<HTMLDivElement>) {
+    const clientX = e.clientX;
+    const rect = e.currentTarget.getBoundingClientRect();
+    // On touch devices specifically, a tap while controls are hidden should
+    // just reveal them — not also toggle play/pause. Someone reaching for a
+    // specific control (mute, subtitles, fullscreen, whatever) shouldn't have
+    // their very first tap accidentally pause the video before they can even
+    // see the button they meant to press. Once controls are visible, tapping
+    // the video area goes back to normal (toggles play, same as a second
+    // tap on a real button would). Desktop/mouse is untouched — coarse
+    // pointer detection means this whole branch never applies there.
+    const isTouch = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+    const firstTouchRevealOnly = isTouch && !showControls;
+    pendingClicks.current += 1;
+    if (pendingClicks.current === 1) {
+      clickTimer.current = setTimeout(() => {
+        if (pendingClicks.current === 1) {
+          if (firstTouchRevealOnly) {
+            resetHideTimer();
+          } else {
+            handleVideoClick();
+          }
+        }
+        pendingClicks.current = 0;
+      }, 280);
+    } else {
+      if (clickTimer.current) clearTimeout(clickTimer.current);
+      pendingClicks.current = 0;
+      const isRightHalf = clientX - rect.left > rect.width / 2;
+      skip(isRightHalf ? 10 : -10);
+      resetHideTimer();
+      setSeekFeedback(isRightHalf ? "fwd" : "back");
+      if (seekFeedbackTimer.current) clearTimeout(seekFeedbackTimer.current);
+      seekFeedbackTimer.current = setTimeout(() => setSeekFeedback(null), 500);
+    }
+  }
+  function skip(delta: number) {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = Math.max(0, Math.min((v.duration || 0) - 0.5, v.currentTime + delta));
+  }
+  function pctFromClientX(clientX: number) {
+    const el = seekBarRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    const ratio = rect.width ? (clientX - rect.left) / rect.width : 0;
+    return Math.min(100, Math.max(0, ratio * 100));
+  }
+  // Throttles the actual video seek to once per animation frame while
+  // dragging, so the timeline stays perfectly smooth even while scrubbing
+  // fast over a long video served through the tunnel/proxy.
+  function queueScrubSeek(p: number) {
+    pendingSeekPctRef.current = p;
+    if (seekRafRef.current != null) return;
+    seekRafRef.current = requestAnimationFrame(() => {
+      seekRafRef.current = null;
+      const v = videoRef.current;
+      const pp = pendingSeekPctRef.current;
+      if (v && v.duration && pp != null) {
+        v.currentTime = (pp / 100) * v.duration;
+        setCurrent(v.currentTime);
+      }
+    });
+  }
+  function handleScrubPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.stopPropagation();
+    if (!duration) return;
+    seekBarRef.current?.setPointerCapture(e.pointerId);
+    setScrubbing(true);
+    setHoverPct(null);
+    // Keep controls fully visible for the whole drag — don't let the
+    // auto-hide timer fire mid-scrub.
+    setShowControls(true);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    const p = pctFromClientX(e.clientX);
+    setDragPct(p);
+    queueScrubSeek(p);
+  }
+  function handleScrubPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (scrubbing) {
+      const p = pctFromClientX(e.clientX);
+      setDragPct(p);
+      queueScrubSeek(p);
+    } else {
+      setHoverPct(pctFromClientX(e.clientX));
+    }
+  }
+  function handleScrubPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!scrubbing) return;
+    seekBarRef.current?.releasePointerCapture(e.pointerId);
+    const p = dragPct;
+    if (p != null) {
+      const v = videoRef.current;
+      if (v && v.duration) {
+        v.currentTime = (p / 100) * v.duration;
+        setCurrent(v.currentTime);
+      }
+    }
+    setScrubbing(false);
+    setDragPct(null);
+    resetHideTimer();
+  }
+  function handleVolume(val: number) {
+    const v = videoRef.current;
+    if (!v) return;
+    v.volume = val;
+    v.muted = val === 0;
+    setVolumeState(val);
+    setMuted(val === 0);
+    persistVolume(val);
+    setMutePreference(val === 0);
+  }
+  function toggleMute() {
+    const v = videoRef.current;
+    if (!v) return;
+    const next = !v.muted;
+    v.muted = next;
+    // Coming out of mute at 0 volume would still be silent — give it a
+    // sensible level so clicking unmute is never a no-op.
+    if (!next && v.volume === 0) {
+      v.volume = 1;
+      setVolumeState(1);
+      persistVolume(1);
+    }
+    setMuted(next);
+    setMutePreference(next);
+  }
+  async function toggleFullscreen() {
+    try {
+      if (!document.fullscreenElement) {
+        await playerRootRef.current?.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {}
+  }
+  async function togglePip() {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (videoRef.current) {
+        await videoRef.current.requestPictureInPicture();
+      }
+    } catch {
+      alert("Picture-in-picture isn't supported in this browser.");
+    }
+  }
+  function handleSavePosition() {
+    const v = videoRef.current;
+    if (!v) return;
+    setSavedTime(video.id, v.currentTime);
+    setSavedToast(true);
+    setTimeout(() => setSavedToast(false), 1500);
+  }
+  function handleResetPosition() {
+    clearProgress(video.id);
+    if (videoRef.current) videoRef.current.currentTime = 0;
+  }
+  function playNext() {
+    if (nextVideo) onPlayVideo(nextVideo);
+    else onClose();
+  }
+  function playPrevious() {
+    if (prevVideo) onPlayVideo(prevVideo);
+  }
+  function seekToPercent(pct: number) {
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    v.currentTime = (pct / 100) * v.duration;
+    resetHideTimer();
+  }
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      switch (e.key) {
+        case " ":
+        case "k":
+          e.preventDefault();
+          togglePlay();
+          break;
+        case "ArrowRight":
+          skip(10);
+          break;
+        case "ArrowLeft":
+          skip(-10);
+          break;
+        case "f":
+          toggleFullscreen();
+          break;
+        case "m":
+          toggleMute();
+          break;
+        case "c":
+        case "C":
+          if (convertibleSubtitles.length > 0) {
+            setSubtitleIndex((cur) => (cur === null ? convertibleSubtitles[0].index : null));
+          }
+          break;
+        case "b":
+        case "B":
+          if (video.audioTracks && video.audioTracks.length > 1) {
+            const tracks = video.audioTracks;
+            const curIdx = tracks.findIndex((t) => t.index === audioTrackIndex);
+            const nextTrack = tracks[(curIdx + 1) % tracks.length];
+            selectAudioTrack(nextTrack.index);
+          }
+          break;
+        case "n":
+        case "N":
+          playNext();
+          break;
+        case "p":
+        case "P":
+          playPrevious();
+          break;
+        case "Home": {
+          const v = videoRef.current;
+          if (v) v.currentTime = 0;
+          resetHideTimer();
+          break;
+        }
+        case "End": {
+          const v = videoRef.current;
+          if (v && v.duration) v.currentTime = Math.max(0, v.duration - 0.5);
+          resetHideTimer();
+          break;
+        }
+        case "0":
+        case "1":
+        case "2":
+        case "3":
+        case "4":
+        case "5":
+        case "6":
+        case "7":
+        case "8":
+        case "9":
+          // Standard YouTube-style shortcut: number key N jumps to N*10% of
+          // the video (0 = start, 9 = 90%).
+          seekToPercent(Number(e.key) * 10);
+          break;
+        case "Escape":
+          if (showShortcuts) setShowShortcuts(false);
+          else onClose();
+          break;
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showShortcuts, video.id, nextVideo, prevVideo, convertibleSubtitles.length, audioTrackIndex]);
+  const pct = duration ? (current / duration) * 100 : 0;
+  return (
+    <div ref={playerRootRef} className="fixed inset-0 z-50 bg-black flex flex-col" onMouseMove={resetHideTimer} onClick={resetHideTimer}>
+      <div className="relative flex-1 flex items-center justify-center overflow-hidden" onClick={handleVideoAreaClick}>
+        <video
+          ref={videoRef}
+          className="w-full h-full max-h-screen bg-black"
+          src={videoSrc}
+          muted
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onTimeUpdate={(e) => {
+            const v = e.currentTarget;
+            setCurrent(v.currentTime);
+            if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
+            if (v.duration && v.currentTime > v.duration - 3) markWatched(video.id);
+          }}
+          onLoadedMetadata={(e) => {
+            setDuration(e.currentTarget.duration);
+            const pending = pendingResumeRef.current;
+            if (pending) {
+              e.currentTarget.currentTime = pending.time;
+              if (pending.playing) e.currentTarget.play().catch(() => {});
+              pendingResumeRef.current = null;
+              setSwitchingAudio(false);
+            }
+          }}
+          onEnded={() => {
+            markWatched(video.id);
+            if (autonext) playNext();
+          }}
+          onWaiting={() => setLoading(true)}
+          onPlaying={() => setLoading(false)}
+          onCanPlay={() => setLoading(false)}
+          onLoadStart={() => setLoading(true)}
+          onSeeking={() => setLoading(true)}
+          onSeeked={() => setLoading(false)}
+          autoPlay
+          playsInline
+        >
+          {convertibleSubtitles.map((t) => (
+            <track key={t.index} kind="subtitles" src={`/api/subtitle/${video.id}?track=${t.index}`} srcLang={t.language || "und"} label={languageName(t.language, t.title, t.index)} />
+          ))}
+        </video>
+        {/* Buffering spinner */}
+        {(loading || switchingAudio) && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-2">
+            <div className="w-12 h-12 rounded-full border-[3px] border-white/25 border-t-white animate-spin" />
+            {switchingAudio && <div className="text-xs text-white/80 bg-black/60 px-2.5 py-1 rounded">Switching audio…</div>}
+          </div>
+        )}
+        {/* Click-to-toggle feedback pulse */}
+        {clickFeedback && (
+          <div key={Date.now()} className="absolute inset-0 m-auto w-16 h-16 rounded-full bg-black/50 flex items-center justify-center pointer-events-none animate-clickpulse">
+            {clickFeedback === "play" ? (
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            ) : (
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff">
+                <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+              </svg>
+            )}
+          </div>
+        )}
+        {/* Double-tap seek feedback — flashes on whichever half was tapped */}
+        {seekFeedback && (
+          <div
+            key={Date.now()}
+            className={`absolute inset-y-0 ${seekFeedback === "fwd" ? "right-0" : "left-0"} w-1/2 flex items-center ${
+              seekFeedback === "fwd" ? "justify-end pr-8 sm:pr-16" : "justify-start pl-8 sm:pl-16"
+            } pointer-events-none`}
+          >
+            <div className="flex flex-col items-center gap-1 bg-black/40 rounded-full w-20 h-20 justify-center animate-clickpulse">
+              {seekFeedback === "fwd" ? <FwdIcon large /> : <BackIcon large />}
+            </div>
+          </div>
+        )}
+      </div>
+      {/* Top bar, center play button, toasts, and bottom controls all live
 outside the click-to-play/pause video area on purpose — they used to
 be nested inside it, which meant every click on any control (mute,
 fullscreen, seek, skip, etc) bubbled up and ALSO re-triggered the
 video's own click-to-toggle-play/double-click-to-seek behavior,
 fighting with whatever the button itself just did. */}
-{/* Top bar */}
-<div
-onClick={(e) => e.stopPropagation()}
-className={`absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-6 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 ${
-showControls ? "opacity-100" : "opacity-0 pointer-events-none"
-}`}
->
-<div className="min-w-0 pr-4">
-<div className="text-lg sm:text-xl font-semibold truncate">{displayName(video.name)}</div>
-<div className="text-xs sm:text-sm text-muted truncate">{video.folder || "Library root"}</div>
-</div>
-<div className="flex items-center gap-2 shrink-0">
-<DownloadButton videoId={video.id} size="md" />
-{superAdmin && onRenamed && onDeleted && (
-<ManageControls
-video={video}
-size="md"
-folderPaths={folderPaths}
-onRenamed={(v) => {
-onRenamed(v);
-}}
-onDeleted={(id) => {
-onDeleted(id);
-onClose();
-}}
-/>
-)}
-<button
-onClick={() => setShowShortcuts((s) => !s)}
-className="w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring"
-aria-label="Keyboard shortcuts"
-title="Keyboard shortcuts"
->
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
-<circle cx="12" cy="12" r="10" />
-<path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 .9-1 1.7" />
-<path d="M12 17h.01" />
-</svg>
-</button>
-<button onClick={onClose} className="w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring" aria-label="Close player">
-<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
-<path d="M18 6 6 18M6 6l12 12" />
-</svg>
-</button>
-</div>
-</div>
-{showShortcuts && (
-<div
-onClick={(e) => e.stopPropagation()}
-className="absolute top-16 right-4 sm:right-6 z-10 w-64 rounded-lg bg-black/90 border border-white/10 p-4 text-xs space-y-1.5"
->
-<div className="text-sm font-semibold mb-2">Keyboard shortcuts</div>
-<Shortcut keys="Space / K" desc="Play / pause" />
-<Shortcut keys="← / →" desc="Back / forward 10s" />
-<Shortcut keys="N / P" desc="Next / previous video" />
-<Shortcut keys="Home" desc="Jump to start" />
-<Shortcut keys="End" desc="Jump to end" />
-<Shortcut keys="0–9" desc="Jump to 0%–90%" />
-<Shortcut keys="M" desc="Mute / unmute" />
-<Shortcut keys="C" desc="Toggle subtitles" />
-<Shortcut keys="B" desc="Cycle audio language" />
-<Shortcut keys="F" desc="Fullscreen" />
-<Shortcut keys="Esc" desc="Close player" />
-</div>
-)}
-{/* Center play/pause tap target */}
-{!playing && showControls && (
-<button
-onClick={togglePlay}
-className="absolute inset-0 m-auto w-16 h-16 rounded-full bg-black/50 flex items-center justify-center focus-ring"
-aria-label="Play"
->
-<svg width="26" height="26" viewBox="0 0 24 24" fill="#fff">
-<path d="M8 5v14l11-7z" />
-</svg>
-</button>
-)}
-{muted && playing && (
-<button
-onClick={(e) => {
-e.stopPropagation();
-toggleMute();
-}}
-className="absolute bottom-24 sm:bottom-28 left-4 sm:left-6 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 hover:bg-black/80 text-xs sm:text-sm focus-ring transition-opacity duration-300"
->
-<MuteIcon /> Tap to unmute
-</button>
-)}
-{savedToast && (
-<div onClick={(e) => e.stopPropagation()} className="absolute top-16 right-6 px-3 py-1.5 rounded bg-black/80 text-xs">Position saved</div>
-)}
-{audioSwitchError && (
-<div
-className="absolute top-16 right-6 px-3 py-1.5 rounded bg-red-900/90 text-xs max-w-xs cursor-pointer"
-onClick={(e) => {
-e.stopPropagation();
-setAudioSwitchError(null);
-}}
-title="Dismiss"
->
-{audioSwitchError}
-</div>
-)}
-{/* Bottom controls */}
-<div
-onClick={(e) => e.stopPropagation()}
-className={`absolute bottom-0 left-0 right-0 px-4 sm:px-6 pb-4 sm:pb-5 pt-10 bg-gradient-to-t from-black/90 to-transparent transition-opacity duration-300 ${
-showControls ? "opacity-100" : "opacity-0 pointer-events-none"
-}`}
->
-{/* seek bar */}
-{(() => {
-const displayPct = dragPct != null ? dragPct : pct;
-const tooltipPct = scrubbing ? dragPct : hoverPct;
-const thumbScale = scrubbing ? 1.4 : hoverPct != null ? 1.15 : 1;
-const tooltipTime = tooltipPct != null && duration ? (tooltipPct / 100) * duration : 0;
-const sprite = video.scrubSprite;
-let previewFrame: { src: string; width: number; height: number } | null = null;
-if (sprite && tooltipPct != null) {
-const idx = Math.min(sprite.count - 1, Math.max(0, Math.floor(tooltipTime / sprite.interval)));
-previewFrame = { src: `/api/scrub-sprite/${video.id}?frame=${idx}`, width: sprite.tileW, height: sprite.tileH };
-}
-return (
-<div
-ref={seekBarRef}
-className="relative w-full h-8 sm:h-3 flex items-center mb-2 group/seek cursor-pointer touch-none select-none"
-role="slider"
-aria-label="Seek"
-aria-valuemin={0}
-aria-valuemax={100}
-aria-valuenow={Math.round(displayPct)}
-onPointerDown={handleScrubPointerDown}
-onPointerMove={handleScrubPointerMove}
-onPointerUp={handleScrubPointerUp}
-onPointerCancel={handleScrubPointerUp}
-onPointerLeave={() => !scrubbing && setHoverPct(null)}
->
-{tooltipPct != null && duration > 0 && (
-<div
-className="absolute bottom-full mb-2 -translate-x-1/2 flex flex-col items-center pointer-events-none"
-style={{ left: `${tooltipPct}%` }}
->
-{previewFrame && (
-// eslint-disable-next-line @next/next/no-img-element
-<img
-src={previewFrame.src}
-alt=""
-width={previewFrame.width}
-height={previewFrame.height}
-className="rounded border border-white/25 shadow-lg mb-1.5 bg-black/40 block"
-style={{ width: previewFrame.width, height: previewFrame.height }}
-/>
-)}
-<div className="px-2 py-1 rounded bg-black/90 text-[11px] sm:text-xs text-white tabular-nums whitespace-nowrap shadow-lg">
-{fmtDuration(tooltipTime)}
-</div>
-</div>
-)}
-<div className="absolute w-full h-1 rounded bg-white/20" />
-<div className="absolute h-1 rounded bg-white/35" style={{ width: `${duration ? (buffered / duration) * 100 : 0}%` }} />
-<div
-className="absolute h-1 rounded bg-accent"
-style={{ width: `${displayPct}%`, transition: scrubbing ? "none" : "width 120ms linear" }}
-/>
-<div
-className="absolute rounded-full bg-accent shadow-[0_0_0_3px_rgba(0,0,0,0.35)]"
-style={{
-left: `${displayPct}%`,
-top: "50%",
-width: 13,
-height: 13,
-marginLeft: -6.5,
-transform: `translateY(-50%) scale(${thumbScale})`,
-transition: scrubbing ? "transform 100ms ease-out" : "transform 150ms ease-out, left 120ms linear",
-}}
-/>
-</div>
-);
-})()}
-<div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-<IconButton onClick={togglePlay} label={playing ? "Pause" : "Play"}>
-{playing ? <PauseIcon /> : <PlayIcon />}
-</IconButton>
-<IconButton onClick={playPrevious} label="Previous video" disabled={!prevVideo}>
-<PrevTrackIcon />
-</IconButton>
-<IconButton onClick={() => skip(-10)} label="Back 10 seconds">
-<BackIcon />
-</IconButton>
-<IconButton onClick={() => skip(10)} label="Forward 10 seconds">
-<FwdIcon />
-</IconButton>
-<IconButton onClick={playNext} label="Next video" disabled={!nextVideo}>
-<NextTrackIcon />
-</IconButton>
-<div className="flex items-center gap-1.5 group/vol">
-<IconButton onClick={toggleMute} label={muted ? "Unmute" : "Mute"}>
-{muted || volume === 0 ? <MuteIcon /> : <VolIcon />}
-</IconButton>
-<input
-type="range"
-min={0}
-max={1}
-step={0.01}
-value={muted ? 0 : volume}
-onChange={(e) => handleVolume(Number(e.target.value))}
-className="h-8 sm:h-auto w-14 sm:w-0 sm:group-hover/vol:w-20 transition-all duration-200 overflow-hidden"
-aria-label="Volume"
-/>
-</div>
-<div className="text-xs sm:text-sm tabular-nums text-white/80 ml-1">
-{fmtDuration(current)} / {fmtDuration(duration)}
-</div>
-<div className="ml-auto flex items-center gap-2 sm:gap-3">
-<label className="hidden sm:flex items-center gap-1.5 text-xs text-muted cursor-pointer select-none">
-<input type="checkbox" checked={autonext} onChange={(e) => setAutonext(e.target.checked)} />
-Autoplay next
-</label>
-<select
-value={speed}
-onChange={(e) => {
-const s = Number(e.target.value);
-setSpeed(s);
-if (videoRef.current) videoRef.current.playbackRate = s;
-}}
-className="bg-white/10 text-xs rounded px-2 py-1.5 focus-ring"
-aria-label="Playback speed"
->
-{SPEEDS.map((s) => (
-<option key={s} value={s}>
-{s}x
-</option>
-))}
-</select>
-{video.audioTracks && video.audioTracks.length > 1 && (
-<div className="relative">
-<button
-onClick={() => setAudioMenuOpen((o) => !o)}
-disabled={switchingAudio}
-aria-expanded={audioMenuOpen}
-title="Audio language"
-className="flex items-center gap-1.5 text-xs px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50 focus-ring"
->
-<AudioIcon />
-<span className="hidden sm:inline">
-{languageName(
-video.audioTracks.find((t) => t.index === audioTrackIndex)?.language ?? null,
-video.audioTracks.find((t) => t.index === audioTrackIndex)?.title ?? null,
-audioTrackIndex
-)}
-</span>
-</button>
-{audioMenuOpen && (
-<div
-onClick={(e) => e.stopPropagation()}
-className="absolute bottom-full mb-2 right-0 w-44 rounded-lg bg-black/95 border border-white/10 py-1.5 text-sm z-20"
->
-{video.audioTracks.map((t) => (
-<button
-key={t.index}
-onClick={() => selectAudioTrack(t.index)}
-className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/10 ${
-t.index === audioTrackIndex ? "text-accent" : "text-white/90"
-}`}
->
-{languageName(t.language, t.title, t.index)}
-{t.index === audioTrackIndex && (
-<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-<path d="M20 6 9 17l-5-5" />
-</svg>
-)}
-</button>
-))}
-</div>
-)}
-</div>
-)}
-{(convertibleSubtitles.length > 0 || unconvertibleSubtitles.length > 0) && (
-<div className="relative">
-<button
-onClick={() => setSubtitleMenuOpen((o) => !o)}
-aria-expanded={subtitleMenuOpen}
-title="Subtitles"
-className="flex items-center gap-1.5 text-xs px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded bg-white/10 hover:bg-white/20 focus-ring"
->
-<CcIcon />
-<span className="hidden sm:inline">
-{subtitleIndex === null
-? "Off"
-: languageName(
-convertibleSubtitles.find((t) => t.index === subtitleIndex)?.language ?? null,
-convertibleSubtitles.find((t) => t.index === subtitleIndex)?.title ?? null,
-subtitleIndex
-)}
-</span>
-</button>
-{subtitleMenuOpen && (
-<div
-onClick={(e) => e.stopPropagation()}
-className="absolute bottom-full mb-2 right-0 w-52 rounded-lg bg-black/95 border border-white/10 py-1.5 text-sm z-20"
->
-<button
-onClick={() => {
-setSubtitleIndex(null);
-setSubtitleMenuOpen(false);
-}}
-className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/10 ${
-subtitleIndex === null ? "text-accent" : "text-white/90"
-}`}
->
-Off
-{subtitleIndex === null && (
-<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-<path d="M20 6 9 17l-5-5" />
-</svg>
-)}
-</button>
-{convertibleSubtitles.map((t) => (
-<button
-key={t.index}
-onClick={() => {
-setSubtitleIndex(t.index);
-setSubtitleMenuOpen(false);
-}}
-className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/10 ${
-t.index === subtitleIndex ? "text-accent" : "text-white/90"
-}`}
->
-{languageName(t.language, t.title, t.index)}
-{t.index === subtitleIndex && (
-<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-<path d="M20 6 9 17l-5-5" />
-</svg>
-)}
-</button>
-))}
-{unconvertibleSubtitles.map((t) => (
-<div
-key={t.index}
-title="Image-based subtitle format — can't be converted to text captions"
-className="w-full text-left px-3 py-1.5 text-white/30 cursor-not-allowed flex items-center justify-between"
->
-{languageName(t.language, t.title, t.index)}
-<span className="text-[10px]">unsupported</span>
-</div>
-))}
-</div>
-)}
-</div>
-)}
-<button onClick={handleSavePosition} className="hidden sm:block text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 focus-ring">
-Save
-</button>
-<button onClick={handleResetPosition} className="hidden sm:block text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 focus-ring">
-Reset
-</button>
-<IconButton onClick={togglePip} label="Picture in picture">
-<PipIcon />
-</IconButton>
-<IconButton onClick={toggleFullscreen} label="Fullscreen">
-<FsIcon />
-</IconButton>
-</div>
-</div>
-</div>
-{nextVideo && (
-<div onClick={(e) => e.stopPropagation()} className="absolute bottom-24 sm:bottom-28 right-4 sm:right-6 text-xs text-muted max-w-[50%] truncate">
-Up next: <span className="text-white">{displayName(nextVideo.name)}</span>
-</div>
-)}
-</div>
-);
+      {/* Top bar */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-6 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 ${
+          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <div className="min-w-0 pr-4">
+          <div className="text-lg sm:text-xl font-semibold truncate">{displayName(video.name)}</div>
+          <div className="text-xs sm:text-sm text-muted truncate">{video.folder || "Library root"}</div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <DownloadButton videoId={video.id} size="md" />
+          {superAdmin && onRenamed && onDeleted && (
+            <ManageControls
+              video={video}
+              size="md"
+              folderPaths={folderPaths}
+              onRenamed={(v) => {
+                onRenamed(v);
+              }}
+              onDeleted={(id) => {
+                onDeleted(id);
+                onClose();
+              }}
+            />
+          )}
+          <button
+            onClick={() => setShowShortcuts((s) => !s)}
+            className="w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring"
+            aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 .9-1 1.7" />
+              <path d="M12 17h.01" />
+            </svg>
+          </button>
+          <button onClick={onClose} className="w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center focus-ring" aria-label="Close player">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      {showShortcuts && (
+        <div onClick={(e) => e.stopPropagation()} className="absolute top-16 right-4 sm:right-6 z-10 w-64 rounded-lg bg-black/90 border border-white/10 p-4 text-xs space-y-1.5">
+          <div className="text-sm font-semibold mb-2">Keyboard shortcuts</div>
+          <Shortcut keys="Space / K" desc="Play / pause" />
+          <Shortcut keys="← / →" desc="Back / forward 10s" />
+          <Shortcut keys="N / P" desc="Next / previous video" />
+          <Shortcut keys="Home" desc="Jump to start" />
+          <Shortcut keys="End" desc="Jump to end" />
+          <Shortcut keys="0–9" desc="Jump to 0%–90%" />
+          <Shortcut keys="M" desc="Mute / unmute" />
+          <Shortcut keys="C" desc="Toggle subtitles" />
+          <Shortcut keys="B" desc="Cycle audio language" />
+          <Shortcut keys="F" desc="Fullscreen" />
+          <Shortcut keys="Esc" desc="Close player" />
+        </div>
+      )}
+      {/* Center play/pause tap target */}
+      {!playing && showControls && (
+        <button onClick={togglePlay} className="absolute inset-0 m-auto w-16 h-16 rounded-full bg-black/50 flex items-center justify-center focus-ring" aria-label="Play">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        </button>
+      )}
+      {muted && playing && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleMute();
+          }}
+          className="absolute bottom-24 sm:bottom-28 left-4 sm:left-6 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 hover:bg-black/80 text-xs sm:text-sm focus-ring transition-opacity duration-300"
+        >
+          <MuteIcon /> Tap to unmute
+        </button>
+      )}
+      {savedToast && (
+        <div onClick={(e) => e.stopPropagation()} className="absolute top-16 right-6 px-3 py-1.5 rounded bg-black/80 text-xs">
+          Position saved
+        </div>
+      )}
+      {audioSwitchError && (
+        <div
+          className="absolute top-16 right-6 px-3 py-1.5 rounded bg-red-900/90 text-xs max-w-xs cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            setAudioSwitchError(null);
+          }}
+          title="Dismiss"
+        >
+          {audioSwitchError}
+        </div>
+      )}
+      {/* Bottom controls */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`absolute bottom-0 left-0 right-0 px-4 sm:px-6 pb-4 sm:pb-5 pt-10 bg-gradient-to-t from-black/90 to-transparent transition-opacity duration-300 ${
+          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
+        {/* seek bar */}
+        {(() => {
+          const displayPct = dragPct != null ? dragPct : pct;
+          const tooltipPct = scrubbing ? dragPct : hoverPct;
+          const thumbScale = scrubbing ? 1.4 : hoverPct != null ? 1.15 : 1;
+          const tooltipTime = tooltipPct != null && duration ? (tooltipPct / 100) * duration : 0;
+          const sprite = video.scrubSprite;
+          let previewFrame: { src: string; width: number; height: number } | null = null;
+          if (sprite && tooltipPct != null) {
+            const idx = Math.min(sprite.count - 1, Math.max(0, Math.floor(tooltipTime / sprite.interval)));
+            previewFrame = { src: `/api/scrub-sprite/${video.id}?frame=${idx}`, width: sprite.tileW, height: sprite.tileH };
+          }
+          return (
+            <div
+              ref={seekBarRef}
+              className="relative w-full h-8 sm:h-3 flex items-center mb-2 group/seek cursor-pointer touch-none select-none"
+              role="slider"
+              aria-label="Seek"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(displayPct)}
+              onPointerDown={handleScrubPointerDown}
+              onPointerMove={handleScrubPointerMove}
+              onPointerUp={handleScrubPointerUp}
+              onPointerCancel={handleScrubPointerUp}
+              onPointerLeave={() => !scrubbing && setHoverPct(null)}
+            >
+              {tooltipPct != null && duration > 0 && (
+                <div className="absolute bottom-full mb-2 -translate-x-1/2 flex flex-col items-center pointer-events-none" style={{ left: `${tooltipPct}%` }}>
+                  {previewFrame && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={previewFrame.src}
+                      alt=""
+                      width={previewFrame.width}
+                      height={previewFrame.height}
+                      className="rounded border border-white/25 shadow-lg mb-1.5 bg-black/40 block"
+                      style={{ width: previewFrame.width, height: previewFrame.height }}
+                    />
+                  )}
+                  <div className="px-2 py-1 rounded bg-black/90 text-[11px] sm:text-xs text-white tabular-nums whitespace-nowrap shadow-lg">{fmtDuration(tooltipTime)}</div>
+                </div>
+              )}
+              <div className="absolute w-full h-1 rounded bg-white/20" />
+              <div className="absolute h-1 rounded bg-white/35" style={{ width: `${duration ? (buffered / duration) * 100 : 0}%` }} />
+              <div className="absolute h-1 rounded bg-accent" style={{ width: `${displayPct}%`, transition: scrubbing ? "none" : "width 120ms linear" }} />
+              <div
+                className="absolute rounded-full bg-accent shadow-[0_0_0_3px_rgba(0,0,0,0.35)]"
+                style={{
+                  left: `${displayPct}%`,
+                  top: "50%",
+                  width: 13,
+                  height: 13,
+                  marginLeft: -6.5,
+                  transform: `translateY(-50%) scale(${thumbScale})`,
+                  transition: scrubbing ? "transform 100ms ease-out" : "transform 150ms ease-out, left 120ms linear",
+                }}
+              />
+            </div>
+          );
+        })()}
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <IconButton onClick={togglePlay} label={playing ? "Pause" : "Play"}>
+            {playing ? <PauseIcon /> : <PlayIcon />}
+          </IconButton>
+          <IconButton onClick={playPrevious} label="Previous video" disabled={!prevVideo}>
+            <PrevTrackIcon />
+          </IconButton>
+          <IconButton onClick={() => skip(-10)} label="Back 10 seconds">
+            <BackIcon />
+          </IconButton>
+          <IconButton onClick={() => skip(10)} label="Forward 10 seconds">
+            <FwdIcon />
+          </IconButton>
+          <IconButton onClick={playNext} label="Next video" disabled={!nextVideo}>
+            <NextTrackIcon />
+          </IconButton>
+          <div className="flex items-center gap-1.5 group/vol">
+            <IconButton onClick={toggleMute} label={muted ? "Unmute" : "Mute"}>
+              {muted || volume === 0 ? <MuteIcon /> : <VolIcon />}
+            </IconButton>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={muted ? 0 : volume}
+              onChange={(e) => handleVolume(Number(e.target.value))}
+              className="h-8 sm:h-auto w-14 sm:w-0 sm:group-hover/vol:w-20 transition-all duration-200 overflow-hidden"
+              aria-label="Volume"
+            />
+          </div>
+          <div className="text-xs sm:text-sm tabular-nums text-white/80 ml-1">
+            {fmtDuration(current)} / {fmtDuration(duration)}
+          </div>
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
+            <label className="hidden sm:flex items-center gap-1.5 text-xs text-muted cursor-pointer select-none">
+              <input type="checkbox" checked={autonext} onChange={(e) => setAutonext(e.target.checked)} />
+              Autoplay next
+            </label>
+            <select
+              value={speed}
+              onChange={(e) => {
+                const s = Number(e.target.value);
+                setSpeed(s);
+                if (videoRef.current) videoRef.current.playbackRate = s;
+              }}
+              className="bg-white/10 text-xs rounded px-2 py-1.5 focus-ring"
+              aria-label="Playback speed"
+            >
+              {SPEEDS.map((s) => (
+                <option key={s} value={s}>
+                  {s}x
+                </option>
+              ))}
+            </select>
+            {video.audioTracks && video.audioTracks.length > 1 && (
+              <div className="relative">
+                <button
+                  onClick={() => setAudioMenuOpen((o) => !o)}
+                  disabled={switchingAudio}
+                  aria-expanded={audioMenuOpen}
+                  title="Audio language"
+                  className="flex items-center gap-1.5 text-xs px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50 focus-ring"
+                >
+                  <AudioIcon />
+                  <span className="hidden sm:inline">
+                    {languageName(
+                      video.audioTracks.find((t) => t.index === audioTrackIndex)?.language ?? null,
+                      video.audioTracks.find((t) => t.index === audioTrackIndex)?.title ?? null,
+                      audioTrackIndex,
+                    )}
+                  </span>
+                </button>
+                {audioMenuOpen && (
+                  <div onClick={(e) => e.stopPropagation()} className="absolute bottom-full mb-2 right-0 w-44 rounded-lg bg-black/95 border border-white/10 py-1.5 text-sm z-20">
+                    {video.audioTracks.map((t) => (
+                      <button
+                        key={t.index}
+                        onClick={() => selectAudioTrack(t.index)}
+                        className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/10 ${t.index === audioTrackIndex ? "text-accent" : "text-white/90"}`}
+                      >
+                        {languageName(t.language, t.title, t.index)}
+                        {t.index === audioTrackIndex && (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {(convertibleSubtitles.length > 0 || unconvertibleSubtitles.length > 0) && (
+              <div className="relative">
+                <button
+                  onClick={() => setSubtitleMenuOpen((o) => !o)}
+                  aria-expanded={subtitleMenuOpen}
+                  title="Subtitles"
+                  className="flex items-center gap-1.5 text-xs px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded bg-white/10 hover:bg-white/20 focus-ring"
+                >
+                  <CcIcon />
+                  <span className="hidden sm:inline">
+                    {subtitleIndex === null
+                      ? "Off"
+                      : languageName(
+                          convertibleSubtitles.find((t) => t.index === subtitleIndex)?.language ?? null,
+                          convertibleSubtitles.find((t) => t.index === subtitleIndex)?.title ?? null,
+                          subtitleIndex,
+                        )}
+                  </span>
+                </button>
+                {subtitleMenuOpen && (
+                  <div onClick={(e) => e.stopPropagation()} className="absolute bottom-full mb-2 right-0 w-52 rounded-lg bg-black/95 border border-white/10 py-1.5 text-sm z-20">
+                    <button
+                      onClick={() => {
+                        setSubtitleIndex(null);
+                        setSubtitleMenuOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/10 ${subtitleIndex === null ? "text-accent" : "text-white/90"}`}
+                    >
+                      Off
+                      {subtitleIndex === null && (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                          <path d="M20 6 9 17l-5-5" />
+                        </svg>
+                      )}
+                    </button>
+                    {convertibleSubtitles.map((t) => (
+                      <button
+                        key={t.index}
+                        onClick={() => {
+                          setSubtitleIndex(t.index);
+                          setSubtitleMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/10 ${t.index === subtitleIndex ? "text-accent" : "text-white/90"}`}
+                      >
+                        {languageName(t.language, t.title, t.index)}
+                        {t.index === subtitleIndex && (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                    {unconvertibleSubtitles.map((t) => (
+                      <div
+                        key={t.index}
+                        title="Image-based subtitle format — can't be converted to text captions"
+                        className="w-full text-left px-3 py-1.5 text-white/30 cursor-not-allowed flex items-center justify-between"
+                      >
+                        {languageName(t.language, t.title, t.index)}
+                        <span className="text-[10px]">unsupported</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <button onClick={handleSavePosition} className="hidden sm:block text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 focus-ring">
+              Save
+            </button>
+            <button onClick={handleResetPosition} className="hidden sm:block text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 focus-ring">
+              Reset
+            </button>
+            <IconButton onClick={togglePip} label="Picture in picture">
+              <PipIcon />
+            </IconButton>
+            <IconButton onClick={toggleFullscreen} label="Fullscreen">
+              <FsIcon />
+            </IconButton>
+          </div>
+        </div>
+      </div>
+      {nextVideo && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className={`absolute bottom-24 sm:bottom-28 right-4 sm:right-6 text-xs text-muted max-w-[50%] truncate transition-opacity duration-500 ${
+            showUpNext ? "opacity-100" : "opacity-0 pointer-events-none"
+          }`}
+        >
+          Up next: <span className="text-white">{displayName(nextVideo.name)}</span>
+        </div>
+      )}
+    </div>
+  );
 }
 function Shortcut({ keys, desc }: { keys: string; desc: string }) {
-return (
-<div className="flex items-center justify-between gap-3">
-<span className="text-muted">{desc}</span>
-<kbd className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[11px] shrink-0">{keys}</kbd>
-</div>
-);
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted">{desc}</span>
+      <kbd className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[11px] shrink-0">{keys}</kbd>
+    </div>
+  );
 }
-function IconButton({
-children,
-onClick,
-label,
-disabled = false,
-}: {
-children: React.ReactNode;
-onClick: () => void;
-label: string;
-disabled?: boolean;
-}) {
-return (
-<button
-onClick={onClick}
-disabled={disabled}
-aria-label={label}
-title={label}
-className="w-11 h-11 sm:w-9 sm:h-9 rounded-full hover:enabled:bg-white/10 disabled:opacity-30 flex items-center justify-center focus-ring shrink-0"
->
-{children}
-</button>
-);
+function IconButton({ children, onClick, label, disabled = false }: { children: React.ReactNode; onClick: () => void; label: string; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="w-11 h-11 sm:w-9 sm:h-9 rounded-full hover:enabled:bg-white/10 disabled:opacity-30 flex items-center justify-center focus-ring shrink-0"
+    >
+      {children}
+    </button>
+  );
 }
 function PlayIcon() {
-return (
-<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff">
-<path d="M8 5v14l11-7z" />
-</svg>
-);
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
 }
 function PauseIcon() {
-return (
-<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff">
-<path d="M7 5h4v14H7zM13 5h4v14h-4z" />
-</svg>
-);
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff">
+      <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+    </svg>
+  );
 }
 function BackIcon({ large = false }: { large?: boolean }) {
-const s = large ? 28 : 18;
-return (
-<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
-<path d="M3 12a9 9 0 1 0 9-9" />
-<path d="M3 5v6h6" />
-<text x="7" y="16" fontSize="7" fill="#fff" stroke="none">10</text>
-</svg>
-);
+  const s = large ? 28 : 18;
+  return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+      <path d="M3 12a9 9 0 1 0 9-9" />
+      <path d="M3 5v6h6" />
+      <text x="7" y="16" fontSize="7" fill="#fff" stroke="none">
+        10
+      </text>
+    </svg>
+  );
 }
 function FwdIcon({ large = false }: { large?: boolean }) {
-const s = large ? 28 : 18;
-return (
-<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
-<path d="M21 12a9 9 0 1 1-9-9" />
-<path d="M21 5v6h-6" />
-<text x="8" y="16" fontSize="7" fill="#fff" stroke="none">10</text>
-</svg>
-);
+  const s = large ? 28 : 18;
+  return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+      <path d="M21 12a9 9 0 1 1-9-9" />
+      <path d="M21 5v6h-6" />
+      <text x="8" y="16" fontSize="7" fill="#fff" stroke="none">
+        10
+      </text>
+    </svg>
+  );
 }
 function PrevTrackIcon() {
-return (
-<svg width="17" height="17" viewBox="0 0 24 24" fill="#fff">
-<path d="M6 5h2v14H6zM20 5v14l-11-7z" />
-</svg>
-);
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="#fff">
+      <path d="M6 5h2v14H6zM20 5v14l-11-7z" />
+    </svg>
+  );
 }
 function NextTrackIcon() {
-return (
-<svg width="17" height="17" viewBox="0 0 24 24" fill="#fff">
-<path d="M16 5h2v14h-2zM4 5v14l11-7z" />
-</svg>
-);
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="#fff">
+      <path d="M16 5h2v14h-2zM4 5v14l11-7z" />
+    </svg>
+  );
 }
 function VolIcon() {
-return (
-<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff">
-<path d="M4 9v6h4l5 5V4L8 9H4z" />
-<path d="M16.5 8.5a5 5 0 0 1 0 7" stroke="#fff" strokeWidth="1.6" fill="none" />
-</svg>
-);
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff">
+      <path d="M4 9v6h4l5 5V4L8 9H4z" />
+      <path d="M16.5 8.5a5 5 0 0 1 0 7" stroke="#fff" strokeWidth="1.6" fill="none" />
+    </svg>
+  );
 }
 function MuteIcon() {
-return (
-<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff">
-<path d="M4 9v6h4l5 5V4L8 9H4z" />
-<path d="M16 9l5 6M21 9l-5 6" stroke="#fff" strokeWidth="1.6" />
-</svg>
-);
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff">
+      <path d="M4 9v6h4l5 5V4L8 9H4z" />
+      <path d="M16 9l5 6M21 9l-5 6" stroke="#fff" strokeWidth="1.6" />
+    </svg>
+  );
 }
 function CcIcon() {
-return (
-<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-<rect x="2.5" y="5" width="19" height="14" rx="2" />
-<path d="M9 10.5c-.5-.7-1.2-1-2-1-1.4 0-2.5 1.1-2.5 2.5S5.6 14.5 7 14.5c.8 0 1.5-.3 2-1" />
-<path d="M17 10.5c-.5-.7-1.2-1-2-1-1.4 0-2.5 1.1-2.5 2.5s1.1 2.5 2.5 2.5c.8 0 1.5-.3 2-1" />
-</svg>
-);
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="2.5" y="5" width="19" height="14" rx="2" />
+      <path d="M9 10.5c-.5-.7-1.2-1-2-1-1.4 0-2.5 1.1-2.5 2.5S5.6 14.5 7 14.5c.8 0 1.5-.3 2-1" />
+      <path d="M17 10.5c-.5-.7-1.2-1-2-1-1.4 0-2.5 1.1-2.5 2.5s1.1 2.5 2.5 2.5c.8 0 1.5-.3 2-1" />
+    </svg>
+  );
 }
 function AudioIcon() {
-return (
-<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-<path d="M11 5 6 9H2v6h4l5 4V5Z" />
-<path d="M19 5a11 11 0 0 1 0 14M15.5 8.5a6 6 0 0 1 0 7" />
-</svg>
-);
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M11 5 6 9H2v6h4l5 4V5Z" />
+      <path d="M19 5a11 11 0 0 1 0 14M15.5 8.5a6 6 0 0 1 0 7" />
+    </svg>
+  );
 }
 function PipIcon() {
-return (
-<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8">
-<rect x="3" y="4" width="18" height="14" rx="1.5" />
-<rect x="12" y="11" width="7" height="5" rx="1" fill="#fff" stroke="none" />
-</svg>
-);
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8">
+      <rect x="3" y="4" width="18" height="14" rx="1.5" />
+      <rect x="12" y="11" width="7" height="5" rx="1" fill="#fff" stroke="none" />
+    </svg>
+  );
 }
 function FsIcon() {
-return (
-<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8">
-<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3" />
-</svg>
-);
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3" />
+    </svg>
+  );
 }
