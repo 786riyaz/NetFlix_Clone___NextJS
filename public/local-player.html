@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b0d">
+  <meta name="referrer" content="no-referrer">
+  <title>Vault · Local Player</title>
+  <style>
+    :root {
+      --bg: #0b0b0d;
+      --panel: #141416;
+      --card: #1a1a1d;
+      --accent: #e50914;
+      --muted: #9aa0a6;
+      --line: rgba(255, 255, 255, .09)
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%
+    }
+
+    body {
+      background: var(--bg);
+      color: #fff;
+      font: 14px/1.45 Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased
+    }
+
+    body.noscroll {
+      overflow: hidden
+    }
+
+    [hidden] {
+      display: none !important
+    }
+
+    button,
+    select,
+    input {
+      font: inherit;
+      color: inherit
+    }
+
+    button {
+      cursor: pointer;
+      border: 0;
+      background: rgba(255, 255, 255, .1);
+      border-radius: 8px;
+      padding: 7px 12px
+    }
+
+    button:hover {
+      background: rgba(255, 255, 255, .18)
+    }
+
+    button:focus-visible,
+    a:focus-visible,
+    summary:focus-visible,
+    .card:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px
+    }
+
+    .red {
+      background: var(--accent)
+    }
+
+    .red:hover {
+      background: #f6121d
+    }
+
+    a.btn,
+    label.btn {
+      display: inline-block;
+      cursor: pointer;
+      background: rgba(255, 255, 255, .1);
+      border-radius: 8px;
+      padding: 7px 12px;
+      color: #fff;
+      text-decoration: none
+    }
+
+    a.btn:hover,
+    label.btn:hover {
+      background: rgba(255, 255, 255, .18)
+    }
+
+    label.red {
+      background: var(--accent)
+    }
+
+    label.red:hover {
+      background: #f6121d
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 10px;
+      padding: 12px 18px;
+      background: rgba(11, 11, 13, .93);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--line)
+    }
+
+    .logo {
+      color: var(--accent);
+      font-weight: 800;
+      font-size: 22px;
+      letter-spacing: -.5px
+    }
+
+    .tag {
+      font-size: 11px;
+      padding: 3px 9px;
+      border-radius: 99px;
+      background: rgba(255, 255, 255, .08);
+      color: var(--muted)
+    }
+
+    .sp {
+      flex: 1
+    }
+
+    header input[type=search],
+    header select {
+      background: rgba(0, 0, 0, .4);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7px 10px;
+      outline: none
+    }
+
+    header input[type=search] {
+      width: min(260px, 44vw)
+    }
+
+    main {
+      padding: 18px 0 70px
+    }
+
+    .sec {
+      margin: 0 0 26px
+    }
+
+    .sec>h2 {
+      font-size: 17px;
+      margin: 0 0 8px;
+      padding: 0 18px
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding: 4px 18px;
+      scrollbar-width: thin
+    }
+
+    .row .card {
+      flex: 0 0 clamp(170px, 42vw, 240px)
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      padding: 6px 18px 14px
+    }
+
+    details.fg {
+      margin: 0 0 4px
+    }
+
+    details.fg>summary {
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 18px;
+      font-weight: 600;
+      color: #ddd
+    }
+
+    details.fg>summary::-webkit-details-marker {
+      display: none
+    }
+
+    details.fg>summary::before {
+      content: "▸";
+      color: var(--muted);
+      transition: transform .15s
+    }
+
+    details.fg[open]>summary::before {
+      transform: rotate(90deg)
+    }
+
+    summary .n {
+      margin-left: auto;
+      color: var(--muted);
+      font-weight: 400;
+      font-size: 12px
+    }
+
+    .card {
+      position: relative;
+      background: var(--card);
+      border-radius: 10px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform .18s, box-shadow .18s
+    }
+
+    .card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, .55)
+    }
+
+    .thumb {
+      position: relative;
+      aspect-ratio: 16/9;
+      background: linear-gradient(135deg, #232326, #0e0e10);
+      overflow: hidden
+    }
+
+    .thumb img,
+    .thumb video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block
+    }
+
+    .thumb .ph {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 12px
+    }
+
+    .dur {
+      position: absolute;
+      right: 6px;
+      bottom: 6px;
+      background: rgba(0, 0, 0, .72);
+      padding: 1px 6px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums
+    }
+
+    .pbar {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 3px;
+      background: rgba(255, 255, 255, .2)
+    }
+
+    .pbar i {
+      display: block;
+      height: 100%;
+      background: var(--accent)
+    }
+
+    .tick {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px
+    }
+
+    .rm {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, .72);
+      z-index: 2
+    }
+
+    @media(hover:hover) {
+      .rm {
+        opacity: 0;
+        transition: opacity .15s
+      }
+
+      .card:hover .rm,
+      .rm:focus-visible {
+        opacity: 1
+      }
+    }
+
+    .meta {
+      padding: 8px 10px
+    }
+
+    .meta b {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis
+    }
+
+    .meta small {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis
+    }
+
+    .empty {
+      margin: 8vh auto;
+      max-width: 560px;
+      text-align: center;
+      padding: 36px 22px;
+      border: 2px dashed rgba(255, 255, 255, .18);
+      border-radius: 16px;
+      color: var(--muted)
+    }
+
+    .empty h2 {
+      color: #fff;
+      margin: 0 0 6px
+    }
+
+    .empty .acts {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin: 18px 0 8px;
+      flex-wrap: wrap
+    }
+
+    body.drag .empty,
+    body.drag main {
+      outline: 2px dashed var(--accent);
+      outline-offset: -8px
+    }
+
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: 26px;
+      transform: translate(-50%, 20px);
+      background: #222;
+      border: 1px solid var(--line);
+      padding: 9px 16px;
+      border-radius: 10px;
+      opacity: 0;
+      pointer-events: none;
+      transition: .2s;
+      z-index: 300;
+      max-width: 90vw
+    }
+
+    #toast.on {
+      opacity: 1;
+      transform: translate(-50%, 0)
+    }
+
+    dialog {
+      background: var(--panel);
+      color: #fff;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px;
+      width: min(440px, 92vw)
+    }
+
+    dialog::backdrop {
+      background: rgba(0, 0, 0, .65)
+    }
+
+    dialog h3 {
+      margin: 0 0 12px
+    }
+
+    dialog label.opt {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 7px 0
+    }
+
+    dialog .btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px
+    }
+
+    /* player */
+    .pl {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: #000
+    }
+
+    .pl[hidden] {
+      display: none
+    }
+
+    .stage {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #000;
+      user-select: none;
+      -webkit-user-select: none
+    }
+
+    .stage video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block
+    }
+
+    .stage video::cue {
+      font-size: 1.15em
+    }
+
+    .hit {
+      position: absolute;
+      inset: 0
+    }
+
+    .top {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: max(12px, env(safe-area-inset-top)) 14px 26px;
+      background: linear-gradient(#000c, transparent);
+      transition: opacity .25s
+    }
+
+    .top .t {
+      min-width: 0
+    }
+
+    .top b {
+      display: block;
+      font-size: 17px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis
+    }
+
+    .top small {
+      color: #bbb
+    }
+
+    .bot {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 34px 14px max(10px, env(safe-area-inset-bottom));
+      background: linear-gradient(transparent, #000d);
+      transition: opacity .25s
+    }
+
+    .stage.idle .top,
+    .stage.idle .bot {
+      opacity: 0;
+      pointer-events: none
+    }
+
+    .stage.idle {
+      cursor: none
+    }
+
+    .ib {
+      width: 38px;
+      height: 38px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border-radius: 50%
+    }
+
+    .ib svg {
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round
+    }
+
+    .ctrl {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex-wrap: wrap
+    }
+
+    .ctrl .tm {
+      font-size: 12.5px;
+      color: #ddd;
+      margin: 0 8px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap
+    }
+
+    .ctrl input[type=range] {
+      width: 84px;
+      accent-color: var(--accent)
+    }
+
+    .txt {
+      width: auto !important;
+      padding: 0 10px !important;
+      border-radius: 8px !important;
+      font-size: 13px
+    }
+
+    .seek {
+      position: relative;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      touch-action: none
+    }
+
+    .track {
+      position: relative;
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, .25);
+      border-radius: 4px;
+      overflow: hidden;
+      transition: height .12s
+    }
+
+    .seek:hover .track,
+    .seek.drag .track {
+      height: 6px
+    }
+
+    .track i {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 0
+    }
+
+    #buf {
+      background: rgba(255, 255, 255, .35)
+    }
+
+    #fill {
+      background: var(--accent)
+    }
+
+    .knob {
+      position: absolute;
+      left: 0;
+      top: 50%;
+      width: 13px;
+      height: 13px;
+      margin-left: -6.5px;
+      border-radius: 50%;
+      background: var(--accent);
+      transform: translateY(-50%);
+      transition: transform .15s ease-out
+    }
+
+    .seek:hover .knob {
+      transform: translateY(-50%) scale(1.15)
+    }
+
+    .seek.drag .knob {
+      transform: translateY(-50%) scale(1.4)
+    }
+
+    .tip {
+      position: absolute;
+      bottom: 28px;
+      left: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      pointer-events: none;
+      transform: translateX(-50%)
+    }
+
+    .tip.on {
+      display: flex
+    }
+
+    .tip canvas {
+      width: 160px;
+      height: 90px;
+      border: 1px solid rgba(255, 255, 255, .28);
+      border-radius: 6px;
+      background: #111
+    }
+
+    .tip.nocan canvas {
+      display: none
+    }
+
+    .tip span {
+      background: rgba(0, 0, 0, .92);
+      padding: 2px 8px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums
+    }
+
+    .pop {
+      position: absolute;
+      z-index: 6;
+      background: rgba(20, 20, 22, .97);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 6px;
+      min-width: 150px;
+      max-height: 52vh;
+      overflow: auto
+    }
+
+    .pop[hidden] {
+      display: none
+    }
+
+    .pop h4 {
+      margin: 4px 8px 6px;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em
+    }
+
+    .pop button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border-radius: 6px
+    }
+
+    .pop button.on {
+      color: var(--accent);
+      font-weight: 600
+    }
+
+    #flash {
+      position: absolute;
+      left: 50%;
+      top: 44%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, .65);
+      padding: 10px 20px;
+      border-radius: 12px;
+      font-size: 20px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s
+    }
+
+    #flash.on {
+      opacity: 1
+    }
+
+    #spin {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 46px;
+      height: 46px;
+      margin: -23px;
+      border: 4px solid rgba(255, 255, 255, .25);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: sp 0.9s linear infinite;
+      pointer-events: none
+    }
+
+    #spin[hidden] {
+      display: none
+    }
+
+    @keyframes sp {
+      to {
+        transform: rotate(360deg)
+      }
+    }
+
+    #err {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(460px, 90%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px;
+      text-align: center;
+      z-index: 4
+    }
+
+    #err[hidden] {
+      display: none
+    }
+
+    #help {
+      position: absolute;
+      right: 16px;
+      top: 70px;
+      background: rgba(20, 20, 22, .97);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 18px;
+      z-index: 6;
+      font-size: 13px
+    }
+
+    #help[hidden] {
+      display: none
+    }
+
+    #help div {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 2px 0
+    }
+
+    #help kbd {
+      background: #333;
+      border-radius: 4px;
+      padding: 0 6px;
+      font: inherit;
+      font-size: 12px
+    }
+
+    #next {
+      position: absolute;
+      right: 16px;
+      bottom: 110px;
+      background: rgba(20, 20, 22, .95);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      z-index: 3
+    }
+
+    #next[hidden] {
+      display: none
+    }
+
+    @media(max-width:640px) {
+      .ctrl input[type=range] {
+        display: none
+      }
+
+      .ib {
+        width: 34px;
+        height: 34px
+      }
+
+      header {
+        padding: 10px 12px
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <a class="btn" href="/" title="Back to the Vault library">← Vault</a>
+    <span class="logo">VAULT</span><span class="tag">Local Player</span>
+    <span class="sp"></span>
+    <input id="q" type="search" placeholder="Search…" aria-label="Search">
+    <select id="sortSel" aria-label="Sort">
+      <option value="name">Name</option>
+      <option value="date">Newest</option>
+      <option value="size">Size</option>
+      <option value="duration">Duration</option>
+    </select>
+    <label class="btn red" for="inFolder">Open folder</label>
+    <label class="btn" for="inFiles">Open files</label>
+    <button id="btnSet">Settings</button>
+    <input id="inFolder" type="file" webkitdirectory multiple hidden>
+    <input id="inFiles" type="file" accept="video/*,.mkv,.avi,.srt,.vtt" multiple hidden>
+    <input id="inImport" type="file" accept="application/json" hidden>
+    <input id="subFile" type="file" accept=".srt,.vtt" hidden>
+  </header>
+  <main id="main"></main>
+
+  <div class="pl" id="pl" hidden>
+    <div class="stage" id="stage">
+      <video id="vid" playsinline></video>
+      <div class="hit" id="hit"></div>
+      <div id="spin" hidden></div>
+      <div id="flash"></div>
+      <div id="err" hidden></div>
+      <div class="top">
+        <button class="ib" id="btnClose" title="Back (Esc)" data-i="left"></button>
+        <div class="t"><b id="plTitle"></b><small id="plSub"></small></div>
+      </div>
+      <button id="next" hidden></button>
+      <div id="help" hidden>
+        <div><span>Play / pause</span><kbd>Space</kbd></div>
+        <div><span>Seek ±5s / ±10s</span><kbd>← →</kbd> <kbd>J L</kbd></div>
+        <div><span>Volume / mute</span><kbd>↑ ↓</kbd> <kbd>M</kbd></div>
+        <div><span>Speed</span><kbd>&lt;</kbd> <kbd>&gt;</kbd></div>
+        <div><span>Jump to 0–90%</span><kbd>0–9</kbd></div>
+        <div><span>Prev / next</span><kbd>Shift+P</kbd> <kbd>Shift+N</kbd></div>
+        <div><span>Fullscreen / PiP</span><kbd>F</kbd> <kbd>P</kbd></div>
+        <div><span>Subtitles / screenshot</span><kbd>C</kbd> <kbd>S</kbd></div>
+      </div>
+      <div class="pop" id="pop" hidden></div>
+      <div class="bot" id="bot">
+        <div class="seek" id="seek">
+          <div class="tip" id="tip"><canvas id="tipC" width="160" height="90"></canvas><span id="tipT">0:00</span></div>
+          <div class="track"><i id="buf"></i><i id="fill"></i></div>
+          <div class="knob" id="knob"></div>
+        </div>
+        <div class="ctrl">
+          <button class="ib" id="bPrev" title="Previous (Shift+P)" data-i="prev"></button>
+          <button class="ib" id="bPlay" title="Play / pause (Space)"></button>
+          <button class="ib" id="bNext" title="Next (Shift+N)" data-i="next"></button>
+          <button class="ib" id="bBack" title="Back 10s (J)" data-i="back"></button>
+          <button class="ib" id="bFwd" title="Forward 10s (L)" data-i="fwd"></button>
+          <button class="ib" id="bMute" title="Mute (M)"></button>
+          <input id="vol" type="range" min="0" max="1" step="0.02" aria-label="Volume">
+          <span class="tm" id="tm">0:00 / 0:00</span>
+          <span class="sp"></span>
+          <button class="ib txt" id="bSpeed" title="Speed">1×</button>
+          <button class="ib" id="bAudio" title="Audio track" data-i="audio" hidden></button>
+          <button class="ib" id="bSub" title="Subtitles (C)" data-i="sub"></button>
+          <button class="ib" id="bShot" title="Save screenshot (S)" data-i="shot"></button>
+          <button class="ib" id="bPip" title="Picture in picture (P)" data-i="pip"></button>
+          <button class="ib txt" id="bHelp" title="Keyboard shortcuts">?</button>
+          <button class="ib" id="bFs" title="Fullscreen (F)" data-i="fs"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <dialog id="dlg">
+    <h3>Local Player settings</h3>
+    <label class="opt">Preview on hover (muted)<input type="checkbox" id="sHover"></label>
+    <label class="opt">Generate thumbnails<input type="checkbox" id="sThumbs"></label>
+    <label class="opt">Autoplay next video<input type="checkbox" id="sNext"></label>
+    <label class="opt">Save position every (sec)<input type="number" id="sSave" min="1" max="60"
+        style="width:70px"></label>
+    <div class="btns">
+      <button id="bExport">Export progress</button><button id="bImport">Import progress</button>
+      <button id="bClearProg">Reset all progress</button><button id="bClearLib">Clear library</button>
+    </div>
+    <div class="btns"><button class="red" id="bDlgClose">Done</button></div>
+    <p style="color:var(--muted);font-size:12px;margin:12px 0 0">Videos never leave this device. Once this page has
+      loaded, nothing is uploaded or requested from any server — progress and settings live in this browser only.</p>
+  </dialog>
+  <div id="toast" role="status"></div>
+
+  <script>
+    (() => {
+      'use strict';
+      const $ = s => document.querySelector(s);
+      const VIDEO_EXT = new Set(['mp4', 'm4v', 'webm', 'ogv', 'ogg', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', '3gp']);
+      const SUB_EXT = new Set(['srt', 'vtt']);
+      const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+      const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
+      const fmt = s => { if (!isFinite(s) || s < 0) s = 0; s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0') };
+      const extOf = n => { const i = n.lastIndexOf('.'); return i < 0 ? '' : n.slice(i + 1).toLowerCase() };
+      const noExt = n => { const i = n.lastIndexOf('.'); return i > 0 && n.length - i <= 6 ? n.slice(0, i) : n };
+      function h(tag, attrs, ...kids) { const e = document.createElement(tag); if (attrs) for (const k in attrs) { const v = attrs[k]; if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v) } for (const c of kids.flat()) if (c != null) e.append(c); return e }
+      const LS = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d } catch { return d } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch { } } };
+      let settings = Object.assign({ sort: 'name', hover: true, thumbs: true, autonext: true, autosave: 5, speed: 1, volume: 1, muted: false }, LS.get('vaultLocal:settings', {}));
+      let progress = LS.get('vaultLocal:progress', {});
+      const saveSettings = () => LS.set('vaultLocal:settings', settings);
+      const saveProgress = () => LS.set('vaultLocal:progress', progress);
+      let toastT; function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2600) }
+
+      const ICON = {
+        play: '<path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/>', pause: '<path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor" stroke="none"/>',
+        prev: '<path d="M6 5v14M19 5 9 12l10 7z"/>', next: '<path d="M18 5v14M5 5l10 7-10 7z"/>', left: '<path d="M15 18l-6-6 6-6"/>',
+        back: '<path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/><text x="12" y="15.5" font-size="8" text-anchor="middle" fill="currentColor" stroke="none">10</text>',
+        fwd: '<path d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5"/><text x="12" y="15.5" font-size="8" text-anchor="middle" fill="currentColor" stroke="none">10</text>',
+        vol: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>', mute: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/>',
+        sub: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 11h4M13 11h4M7 15h2M11 15h6"/>', pip: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="7" height="5" rx="1" fill="currentColor"/>',
+        fs: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>', shot: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+        audio: '<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4" height="6" rx="1"/><rect x="17" y="14" width="4" height="6" rx="1"/>', x: '<path d="M6 6l12 12M18 6 6 18"/>'
+      };
+      const svg = n => '<svg viewBox="0 0 24 24">' + ICON[n] + '</svg>';
+      document.querySelectorAll('[data-i]').forEach(b => b.innerHTML = svg(b.dataset.i));
+
+      /* ---------- library ---------- */
+      let library = [], seq = 0; const keySet = new Set(), urls = new Map(), collapsed = new Set();
+      const urlFor = v => { let u = urls.get(v.id); if (!u) { u = URL.createObjectURL(v.file); urls.set(v.id, u) } return u };
+      function ingest(files) {
+        const vids = [], subs = new Map();
+        for (const f of files) {
+          const rel = (f._rel || f.webkitRelativePath || f.name).replace(/\\/g, '/'), i = rel.lastIndexOf('/'), folder = i < 0 ? '' : rel.slice(0, i), ext = extOf(f.name);
+          if (VIDEO_EXT.has(ext)) vids.push({ f, rel, folder });
+          else if (SUB_EXT.has(ext)) { if (!subs.has(folder)) subs.set(folder, []); subs.get(folder).push({ f, base: f.name.replace(/\.[^.]+$/, '').toLowerCase() }) }
+        }
+        let added = 0;
+        for (const { f, rel, folder } of vids) {
+          const key = 'L:' + rel + ':' + f.size + ':' + f.lastModified; if (keySet.has(key)) continue; keySet.add(key);
+          const vb = f.name.replace(/\.[^.]+$/, '').toLowerCase();
+          const vsubs = (subs.get(folder) || []).filter(s => s.base === vb || s.base.startsWith(vb + '.')).map(s => ({ file: s.f, label: s.base === vb ? 'Subtitles' : s.base.slice(vb.length + 1) }));
+          library.push({ id: ++seq, file: f, name: f.name, folder, size: f.size, mtime: f.lastModified, key, duration: 0, thumb: null, subs: vsubs }); added++;
+        }
+        if (!added) toast(vids.length ? 'Those videos are already in your library' : 'No supported video files found');
+        else toast('Added ' + added + ' video' + (added > 1 ? 's' : ''));
+        render();
+      }
+      async function filesFromDrop(dt) {
+        const entries = [...(dt.items || [])].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+        if (!entries.length) return [...dt.files];
+        const out = [];
+        async function walk(e, path) {
+          if (e.isFile) { const f = await new Promise((res, rej) => e.file(res, rej)); f._rel = path + f.name; out.push(f) }
+          else if (e.isDirectory) { const r = e.createReader(); let b; do { b = await new Promise((res, rej) => r.readEntries(res, rej)); for (const c of b) await walk(c, path + e.name + '/') } while (b.length) }
+        }
+        for (const e of entries) await walk(e, '');
+        return out;
+      }
+      const sortFn = (a, b) => { const s = settings.sort; if (s === 'date') return b.mtime - a.mtime; if (s === 'size') return b.size - a.size; if (s === 'duration') return (b.duration || 0) - (a.duration || 0); return collator.compare(a.name, b.name) };
+
+      /* ---------- thumbnails ---------- */
+      const thumbQ = []; let thumbBusy = 0;
+      function genThumb(v) {
+        return new Promise(res => {
+          const el = document.createElement('video'); el.muted = true; el.preload = 'metadata'; el.playsInline = true; let done = false, d = 0;
+          const fin = img => { if (done) return; done = true; clearTimeout(to); el.removeAttribute('src'); el.load(); res({ img, d }) };
+          const to = setTimeout(() => fin(null), 9000);
+          el.onerror = () => fin(null);
+          el.onloadedmetadata = () => { d = isFinite(el.duration) ? el.duration : 0; el.currentTime = d > 3 ? Math.min(d * .1, 60) : .1 };
+          el.onseeked = () => { try { const w = Math.min(320, el.videoWidth || 320), hh = Math.round(w * ((el.videoHeight || 9) / (el.videoWidth || 16))); const c = document.createElement('canvas'); c.width = w; c.height = hh; c.getContext('2d').drawImage(el, 0, 0, w, hh); fin(c.toDataURL('image/jpeg', .7)) } catch { fin(null) } };
+          el.src = urlFor(v);
+        })
+      }
+      function enqueueThumb(v) { if (!settings.thumbs || v.thumb || v.tried || v.queued) return; v.queued = true; thumbQ.push(v); pump() }
+      function pump() { while (thumbBusy < 2 && thumbQ.length) { const v = thumbQ.shift(); thumbBusy++; genThumb(v).then(r => { v.tried = true; v.queued = false; if (r.img) v.thumb = r.img; if (r.d) v.duration = r.d; document.querySelectorAll('.card[data-id="' + v.id + '"]').forEach(c => c._paint()) }).finally(() => { thumbBusy--; pump() }) } }
+      const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { io.unobserve(e.target); enqueueThumb(e.target._v) } }), { rootMargin: '240px' });
+
+      /* ---------- rendering ---------- */
+      function card(v, ctx, removable) {
+        const img = h('img', { alt: '', hidden: true }), ph = h('div', { class: 'ph', text: 'No preview' }), dur = h('span', { class: 'dur', hidden: true }), bar = h('i'), pb = h('div', { class: 'pbar', hidden: true }, bar), tick = h('span', { class: 'tick', text: '✓', hidden: true });
+        const thumb = h('div', { class: 'thumb' }, img, ph, dur, pb, tick);
+        const c = h('div', { class: 'card', tabindex: '0', role: 'button', 'data-id': v.id, title: noExt(v.name) }, thumb,
+          h('div', { class: 'meta' }, h('b', { text: noExt(v.name) }), h('small', { text: v.folder ? v.folder.split('/').pop() : 'Selected files' })));
+        if (removable) c.append(h('button', { class: 'rm', title: 'Remove from Continue Watching', 'aria-label': 'Remove from Continue Watching', onclick: e => { e.stopPropagation(); delete progress[v.key]; saveProgress(); render() }, onkeydown: e => e.stopPropagation() }, '✕'));
+        c._v = v;
+        c._paint = () => {
+          const P = progress[v.key];
+          if (v.thumb) { img.src = v.thumb; img.hidden = false; ph.hidden = true }
+          dur.textContent = v.duration ? fmt(v.duration) : ''; dur.hidden = !v.duration;
+          const d = (P && P.d) || v.duration, pct = P && !P.w && d ? clamp(P.t / d * 100, 0, 100) : 0; bar.style.width = pct + '%'; pb.hidden = pct < 1; tick.hidden = !(P && P.w) || removable
+        };
+        c._paint();
+        c.addEventListener('click', () => openVideo(v, ctx));
+        c.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVideo(v, ctx) } });
+        let ht, pv;
+        thumb.addEventListener('mouseenter', () => { if (!settings.hover || !matchMedia('(hover:hover)').matches) return; ht = setTimeout(() => { pv = h('video', { muted: true, loop: true, playsinline: true }); pv.muted = true; pv.src = urlFor(v); pv.onloadedmetadata = () => { try { pv.currentTime = Math.min(pv.duration * .1, 60) } catch { } pv.play().catch(() => { }) }; thumb.prepend(pv) }, 450) });
+        thumb.addEventListener('mouseleave', () => { clearTimeout(ht); if (pv) { pv.removeAttribute('src'); pv.load(); pv.remove(); pv = null } });
+        io.observe(c); return c;
+      }
+      const section = (title, body) => h('section', { class: 'sec' }, h('h2', { text: title }), body);
+      function emptyState() {
+        return h('div', { class: 'empty' }, h('h2', { text: 'Play videos straight from your device' }),
+          h('div', { text: 'Drag & drop videos or a whole folder here, or pick them below. Files are played directly from your disk — nothing is uploaded and no server is involved.' }),
+          h('div', { class: 'acts' }, h('label', { class: 'btn red', for: 'inFolder' }, 'Open folder'), h('label', { class: 'btn', for: 'inFiles' }, 'Open files')),
+          h('small', { text: 'Subtitles (.srt / .vtt) with the same name as a video are picked up automatically. Formats depend on your browser — MP4/WebM always work; MKV/HEVC/AVI work in some.' }))
+      }
+      function render() {
+        const q = $('#q').value.trim().toLowerCase(), main = $('#main'); main.replaceChildren();
+        if (!library.length) { main.append(emptyState()); return }
+        const list = library.filter(v => !q || v.name.toLowerCase().includes(q) || v.folder.toLowerCase().includes(q));
+        if (!list.length) { main.append(h('div', { class: 'empty', text: 'No videos match “' + q + '”.' })); return }
+        const cont = list.filter(v => { const P = progress[v.key]; return P && !P.w && P.t > 5 }).sort((a, b) => progress[b.key].u - progress[a.key].u).slice(0, 20);
+        if (cont.length) main.append(section('Continue Watching', h('div', { class: 'row' }, cont.map(v => card(v, cont, true)))));
+        if (list.length > 4) { const rec = [...list].sort((a, b) => b.mtime - a.mtime).slice(0, 20); main.append(section('Recently Added', h('div', { class: 'row' }, rec.map(v => card(v, rec))))) }
+        const groups = new Map(); for (const v of list) { if (!groups.has(v.folder)) groups.set(v.folder, []); groups.get(v.folder).push(v) }
+        const all = section('All Videos (' + list.length + ')', null);
+        for (const [folder, vs] of [...groups].sort((a, b) => collator.compare(a[0], b[0]))) {
+          vs.sort(sortFn);
+          const d = h('details', { class: 'fg', open: !collapsed.has(folder), ontoggle: () => { d.open ? collapsed.delete(folder) : collapsed.add(folder) } },
+            h('summary', null, folder || 'Selected files', h('span', { class: 'n', text: vs.length + ' video' + (vs.length > 1 ? 's' : '') })),
+            h('div', { class: 'grid' }, vs.map(v => card(v, vs))));
+          all.append(d);
+        }
+        main.append(all);
+      }
+
+      /* ---------- player ---------- */
+      const pl = $('#pl'), stage = $('#stage'), vid = $('#vid'), pop = $('#pop'), seek = $('#seek'), tip = $('#tip'), errBox = $('#err');
+      let cur = null, queue = [], pushed = false, saveT, dragging = false;
+      const idxOf = () => queue.indexOf(cur);
+      function saveNow() { if (cur && isFinite(vid.duration) && vid.currentTime > 0 && vid.readyState > 0) setProg(cur, vid.currentTime, vid.duration) }
+      function setProg(v, t, d) { const p = progress[v.key] || {}; p.d = d || p.d || v.duration || 0; p.u = Date.now(); if (p.d && t > p.d - Math.min(30, p.d * .05)) { p.w = true; p.t = 0 } else { p.t = t; if (t > 5) p.w = false } progress[v.key] = p; saveProgress() }
+      function openVideo(v, list) {
+        const first = pl.hidden; cur = v; queue = list && list.includes(v) ? list : [v]; pl.hidden = false; document.body.classList.add('noscroll');
+        if (first) { history.pushState({ vaultPlayer: 1 }, ''); pushed = true }
+        $('#plTitle').textContent = noExt(v.name); $('#plSub').textContent = v.folder || '';
+        errBox.hidden = true; $('#spin').hidden = false; hidePop(); resetPreview(); clearTracks();
+        vid.src = urlFor(v); vid.playbackRate = settings.speed; vid.volume = settings.volume; vid.muted = settings.muted;
+        $('#bSpeed').textContent = settings.speed + '×'; setFill(0); syncButtons(); setupSubs(v); updateNext();
+        vid.play().catch(() => { }); wake();
+        clearInterval(saveT); saveT = setInterval(saveNow, Math.max(1, settings.autosave) * 1000);
+        if ('mediaSession' in navigator && window.MediaMetadata) navigator.mediaSession.metadata = new MediaMetadata({ title: noExt(v.name), artist: 'Vault Local Player', album: v.folder || '' });
+      }
+      function closeUI() {
+        saveNow(); clearInterval(saveT); vid.pause(); vid.removeAttribute('src'); vid.load(); resetPreview(); clearTracks(); hidePop();
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
+        pl.hidden = true; document.body.classList.remove('noscroll'); cur = null; render();
+      }
+      function closePlayer() { if (pushed) { history.back() } else closeUI() }
+      addEventListener('popstate', () => { if (!pl.hidden) { pushed = false; closeUI() } });
+      function go(d) { const i = idxOf() + d; if (i >= 0 && i < queue.length) { saveNow(); openVideo(queue[i], queue) } }
+      function updateNext() { const n = queue[idxOf() + 1]; $('#bPrev').disabled = idxOf() <= 0; $('#bNext').disabled = !n; const b = $('#next'); b.hidden = true; b._n = n }
+      $('#next').onclick = () => go(1);
+
+      /* seek bar */
+      const setFill = p => { p = clamp(p, 0, 1) * 100; $('#fill').style.width = p + '%'; $('#knob').style.left = p + '%' };
+      const pctAt = x => { const r = seek.getBoundingClientRect(); return clamp((x - r.left) / r.width, 0, 1) };
+      let seekRaf = 0, seekTo = 0;
+      function scrub(e) { const p = pctAt(e.clientX); setFill(p); showTip(e, p); seekTo = p * vid.duration; if (!seekRaf) seekRaf = requestAnimationFrame(() => { seekRaf = 0; vid.currentTime = seekTo }) }
+      seek.addEventListener('pointerdown', e => { if (!isFinite(vid.duration)) return; dragging = true; seek.setPointerCapture(e.pointerId); seek.classList.add('drag'); scrub(e) });
+      seek.addEventListener('pointermove', e => { if (!isFinite(vid.duration)) return; if (dragging) scrub(e); else showTip(e, pctAt(e.clientX)) });
+      const endDrag = e => { if (!dragging) return; dragging = false; seek.classList.remove('drag'); try { seek.releasePointerCapture(e.pointerId) } catch { } vid.currentTime = seekTo; tip.classList.remove('on'); wake() };
+      seek.addEventListener('pointerup', endDrag); seek.addEventListener('pointercancel', endDrag);
+      seek.addEventListener('pointerleave', () => { if (!dragging) tip.classList.remove('on') });
+      function showTip(e, p) { const r = seek.getBoundingClientRect(), w = tip.offsetWidth || 160; tip.style.left = clamp(e.clientX - r.left, w / 2, Math.max(w / 2, r.width - w / 2)) + 'px'; const t = p * vid.duration; $('#tipT').textContent = fmt(t); tip.classList.add('on'); requestPreview(t) }
+      /* hover / drag preview frames come from a hidden second decoder — entirely local */
+      const pv = document.createElement('video'); pv.muted = true; pv.preload = 'auto'; pv.playsInline = true;
+      const tctx = $('#tipC').getContext('2d'); let pvSrc = false, pvBusy = false, pvT = 0, pvFail = false;
+      function resetPreview() { pv.removeAttribute('src'); pv.load(); pvSrc = false; pvBusy = false; pvFail = false; tip.classList.remove('nocan') }
+      function requestPreview(t) { if (pvFail || !cur) return; if (!pvSrc) { pv.src = urlFor(cur); pvSrc = true } pvT = t; if (pv.readyState >= 1 && !pvBusy) doPv() }
+      function doPv() { if (Math.abs(pv.currentTime - pvT) < .05) { pvBusy = false; return } pvBusy = true; pv.currentTime = pvT }
+      pv.addEventListener('loadedmetadata', () => { if (!pvBusy) doPv() });
+      pv.addEventListener('seeked', () => { try { const r = Math.min(160 / pv.videoWidth, 90 / pv.videoHeight), w = pv.videoWidth * r, hh = pv.videoHeight * r; tctx.fillStyle = '#000'; tctx.fillRect(0, 0, 160, 90); tctx.drawImage(pv, (160 - w) / 2, (90 - hh) / 2, w, hh) } catch { } pvBusy = false; if (Math.abs(pv.currentTime - pvT) > .25) doPv() });
+      pv.addEventListener('error', () => { pvFail = true; tip.classList.add('nocan') });
+
+      /* video events */
+      const bufEnd = () => { const b = vid.buffered, t = vid.currentTime; for (let i = 0; i < b.length; i++)if (t >= b.start(i) && t <= b.end(i) + .5) return b.end(i); return 0 };
+      function syncButtons() { $('#bPlay').innerHTML = svg(vid.paused ? 'play' : 'pause'); $('#bMute').innerHTML = svg(vid.muted || vid.volume === 0 ? 'mute' : 'vol'); $('#vol').value = vid.muted ? 0 : vid.volume }
+      vid.addEventListener('timeupdate', () => {
+        const d = vid.duration; if (!dragging && isFinite(d)) setFill(vid.currentTime / d); $('#tm').textContent = fmt(vid.currentTime) + ' / ' + fmt(d);
+        if (isFinite(d)) { $('#buf').style.width = bufEnd() / d * 100 + '%'; const n = $('#next'); if (n._n && settings.autonext && d - vid.currentTime < 15 && d > 60) { n.textContent = 'Up next: ' + noExt(n._n.name) + ' — click to play now'; n.hidden = false } else n.hidden = true }
+      });
+      vid.addEventListener('progress', () => { if (isFinite(vid.duration)) $('#buf').style.width = bufEnd() / vid.duration * 100 + '%' });
+      vid.addEventListener('loadedmetadata', () => {
+        cur.duration = vid.duration; const P = progress[cur.key];
+        if (P && !P.w && P.t > 5 && P.t < vid.duration - 5) { vid.currentTime = P.t; toast('Resumed at ' + fmt(P.t)) }
+        const at = vid.audioTracks; $('#bAudio').hidden = !(at && at.length > 1); $('#spin').hidden = true
+      });
+      ['waiting', 'seeking'].forEach(n => vid.addEventListener(n, () => { $('#spin').hidden = false }));
+      ['playing', 'canplay', 'seeked'].forEach(n => vid.addEventListener(n, () => { $('#spin').hidden = true }));
+      vid.addEventListener('play', () => { syncButtons(); wake() }); vid.addEventListener('pause', () => { syncButtons(); saveNow(); wake() });
+      vid.addEventListener('volumechange', () => { settings.volume = vid.volume; settings.muted = vid.muted; saveSettings(); syncButtons() });
+      vid.addEventListener('ratechange', () => { settings.speed = vid.playbackRate; saveSettings(); $('#bSpeed').textContent = vid.playbackRate + '×' });
+      vid.addEventListener('ended', () => { if (cur) setProg(cur, vid.duration, vid.duration); if (settings.autonext && queue[idxOf() + 1]) go(1); else { vid.currentTime = 0; $('#next').hidden = true } });
+      vid.addEventListener('error', () => {
+        $('#spin').hidden = true; if (!cur || !vid.getAttribute('src')) return;
+        errBox.replaceChildren(h('h3', { text: 'This browser can’t play this file' }), h('p', { style: 'color:var(--muted)', text: '“' + cur.name + '” uses a format or codec (' + (extOf(cur.name).toUpperCase()) + ') this browser can’t decode. MP4 (H.264) and WebM play everywhere; MKV, AVI and HEVC work best in Chrome or Edge. The Vault server library can convert and stream these.' }), h('button', { class: 'red', onclick: closePlayer, text: 'Back to library' })); errBox.hidden = false
+      });
+
+      /* controls */
+      const togglePlay = () => { vid.paused ? vid.play().catch(() => { }) : vid.pause() };
+      const skip = d => { if (isFinite(vid.duration)) { vid.currentTime = clamp(vid.currentTime + d, 0, vid.duration); flash((d > 0 ? '+' : '−') + Math.abs(d) + 's') } };
+      let flashT; function flash(t) { const f = $('#flash'); f.textContent = t; f.classList.add('on'); clearTimeout(flashT); flashT = setTimeout(() => f.classList.remove('on'), 650) }
+      const setVol = v => { vid.muted = false; vid.volume = clamp(v, 0, 1); flash('Volume ' + Math.round(vid.volume * 100) + '%') };
+      const setSpeed = r => { vid.playbackRate = clamp(r, .25, 2) };
+      function toggleFs() { if (document.fullscreenElement || document.webkitFullscreenElement) { (document.exitFullscreen || document.webkitExitFullscreen).call(document) } else if (stage.requestFullscreen) stage.requestFullscreen().catch(() => { }); else if (vid.webkitEnterFullscreen) vid.webkitEnterFullscreen() }
+      async function togglePip() { try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await vid.requestPictureInPicture() } catch { toast('Picture-in-picture isn’t available here') } }
+      function shot() { if (!vid.videoWidth) return; const c = document.createElement('canvas'); c.width = vid.videoWidth; c.height = vid.videoHeight; c.getContext('2d').drawImage(vid, 0, 0); c.toBlob(b => { const a = h('a', { href: URL.createObjectURL(b), download: noExt(cur.name) + ' - ' + fmt(vid.currentTime).replace(/:/g, '.') + '.png' }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); flash('Screenshot saved') }) }
+      $('#bPlay').onclick = togglePlay; $('#bPrev').onclick = () => go(-1); $('#bNext').onclick = () => go(1); $('#bBack').onclick = () => skip(-10); $('#bFwd').onclick = () => skip(10);
+      $('#bMute').onclick = () => { vid.muted = !vid.muted }; $('#vol').oninput = e => { vid.muted = false; vid.volume = +e.target.value };
+      $('#bFs').onclick = toggleFs; $('#bPip').onclick = togglePip; $('#bShot').onclick = shot; $('#btnClose').onclick = closePlayer;
+      $('#bHelp').onclick = () => { $('#help').hidden = !$('#help').hidden };
+      /* single tap = play/pause, double tap: sides skip, centre fullscreen */
+      let lastTap = 0, tapT; $('#hit').addEventListener('click', e => {
+        hidePop(); $('#help').hidden = true; const now = Date.now();
+        if (now - lastTap < 300) { clearTimeout(tapT); lastTap = 0; const x = e.offsetX / e.currentTarget.clientWidth; x < .33 ? skip(-10) : x > .67 ? skip(10) : toggleFs() }
+        else { lastTap = now; tapT = setTimeout(togglePlay, 300) }
+      });
+      /* popovers */
+      function showPop(btn, title, items) {
+        pop.replaceChildren(h('h4', { text: title }), ...items.map(i => h('button', { class: i.on ? 'on' : '', text: i.label, onclick: () => { hidePop(); i.fn() } }))); pop.hidden = false;
+        const r = btn.getBoundingClientRect(), s = stage.getBoundingClientRect(); pop.style.right = Math.max(8, s.right - r.right) + 'px'; pop.style.bottom = (s.bottom - r.top + 8) + 'px'
+      }
+      function hidePop() { pop.hidden = true }
+      $('#bSpeed').onclick = e => { e.stopPropagation(); showPop(e.currentTarget, 'Speed', [.5, .75, 1, 1.25, 1.5, 2].map(r => ({ label: r + '×', on: vid.playbackRate === r, fn: () => setSpeed(r) }))) };
+      $('#bAudio').onclick = e => { e.stopPropagation(); const at = vid.audioTracks; showPop(e.currentTarget, 'Audio track', [...at].map((t, i) => ({ label: t.label || t.language || 'Track ' + (i + 1), on: t.enabled, fn: () => { [...at].forEach((x, j) => x.enabled = j === i) } }))) };
+      $('#bSub').onclick = e => {
+        e.stopPropagation(); const ts = [...vid.textTracks], items = [{ label: 'Off', on: !ts.some(t => t.mode === 'showing'), fn: () => ts.forEach(t => t.mode = 'disabled') }];
+        ts.forEach(t => items.push({ label: t.label, on: t.mode === 'showing', fn: () => ts.forEach(x => x.mode = x === t ? 'showing' : 'disabled') }));
+        items.push({ label: 'Load from device…', fn: () => $('#subFile').click() }); showPop(e.currentTarget, 'Subtitles', items)
+      };
+      document.addEventListener('click', e => { if (!pop.contains(e.target)) hidePop() });
+      /* subtitles: local .srt/.vtt only, converted in the browser */
+      const toVtt = t => /^\uFEFF?WEBVTT/.test(t) ? t.replace(/^\uFEFF/, '') : 'WEBVTT\n\n' + t.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').replace(/(\d{1,2}:\d{2}:\d{2}),(\d{1,3})/g, '$1.$2');
+      function clearTracks() { vid.querySelectorAll('track').forEach(t => { URL.revokeObjectURL(t.src); t.remove() }) }
+      async function addSub(file, label, show) { const vtt = toVtt(await file.text()), t = h('track', { kind: 'subtitles', label, src: URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' })) }); vid.append(t);[...vid.textTracks].forEach(x => { if (x !== t.track && show) x.mode = 'disabled' }); t.track.mode = show ? 'showing' : 'disabled' }
+      async function setupSubs(v) { for (let i = 0; i < v.subs.length; i++) { if (cur !== v) return; try { await addSub(v.subs[i].file, v.subs[i].label, i === 0) } catch { } } if (cur === v && v.subs.length) toast('Subtitles: ' + v.subs[0].label + ' (press C to toggle)') }
+      $('#subFile').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f || !cur) return; try { await addSub(f, f.name.replace(/\.[^.]+$/, ''), true); toast('Loaded ' + f.name) } catch { toast('Couldn’t read that subtitle file') } };
+      const toggleSubs = () => { const ts = [...vid.textTracks]; if (!ts.length) { $('#subFile').click(); return } const on = ts.some(t => t.mode === 'showing'); ts.forEach((t, i) => t.mode = !on && i === 0 ? 'showing' : 'disabled'); flash(on ? 'Subtitles off' : 'Subtitles on') };
+      /* auto-hide controls */
+      let idleT, overBar = false; function wake() { stage.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(() => { if (!vid.paused && !dragging && !overBar && pop.hidden) stage.classList.add('idle') }, 2600) }
+      ['bot', 'top'].forEach(c => { const el = stage.querySelector('.' + c); el.addEventListener('pointerenter', () => { overBar = true }); el.addEventListener('pointerleave', () => { overBar = false; wake() }) });
+      ['pointermove', 'pointerdown', 'touchstart'].forEach(n => stage.addEventListener(n, wake, { passive: true }));
+      /* keyboard */
+      addEventListener('keydown', e => {
+        if (pl.hidden || e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) && e.target.type !== 'range') return;
+        const k = e.key; wake(); let used = true;
+        if (k === ' ' || k === 'k' || k === 'K') togglePlay(); else if (k === 'ArrowRight') skip(e.shiftKey ? 10 : 5); else if (k === 'ArrowLeft') skip(e.shiftKey ? -10 : -5);
+        else if (k === 'l' || k === 'L') skip(10); else if (k === 'j' || k === 'J') skip(-10);
+        else if (k === 'ArrowUp') setVol(vid.volume + .05); else if (k === 'ArrowDown') setVol(vid.volume - .05);
+        else if (k === 'm' || k === 'M') vid.muted = !vid.muted; else if (k === 'f' || k === 'F') toggleFs(); else if (k === 'p') togglePip();
+        else if (k === 'c' || k === 'C') toggleSubs(); else if (k === 's' || k === 'S') shot();
+        else if (k === '>') { setSpeed(vid.playbackRate + .25); flash(vid.playbackRate + '×') } else if (k === '<') { setSpeed(vid.playbackRate - .25); flash(vid.playbackRate + '×') }
+        else if (k === 'N') go(1); else if (k === 'P') go(-1); else if (k === '?') $('#help').hidden = !$('#help').hidden;
+        else if (/^[0-9]$/.test(k) && isFinite(vid.duration)) vid.currentTime = vid.duration * (+k / 10);
+        else if (k === 'Escape') { if (!pop.hidden) hidePop(); else if (!$('#help').hidden) $('#help').hidden = true; else if (!document.fullscreenElement) closePlayer() }
+        else used = false;
+        if (used) e.preventDefault();
+      });
+      if ('mediaSession' in navigator) { const a = (n, f) => { try { navigator.mediaSession.setActionHandler(n, f) } catch { } }; a('play', () => vid.play()); a('pause', () => vid.pause()); a('previoustrack', () => go(-1)); a('nexttrack', () => go(1)); a('seekbackward', () => skip(-10)); a('seekforward', () => skip(10)) }
+      document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow() });
+      addEventListener('beforeunload', () => { saveNow(); urls.forEach(u => URL.revokeObjectURL(u)) });
+
+      /* ---------- header, drop, settings ---------- */
+      $('#sortSel').value = settings.sort; $('#sortSel').onchange = e => { settings.sort = e.target.value; saveSettings(); render() };
+      let qT; $('#q').oninput = () => { clearTimeout(qT); qT = setTimeout(render, 120) };
+      $('#inFolder').onchange = e => { ingest([...e.target.files]); e.target.value = '' };
+      $('#inFiles').onchange = e => { ingest([...e.target.files]); e.target.value = '' };
+      let dragN = 0;
+      addEventListener('dragenter', e => { e.preventDefault(); dragN++; document.body.classList.add('drag') });
+      addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; document.body.classList.remove('drag') } });
+      addEventListener('dragover', e => e.preventDefault());
+      addEventListener('drop', async e => { e.preventDefault(); dragN = 0; document.body.classList.remove('drag'); ingest(await filesFromDrop(e.dataTransfer)) });
+      const dlg = $('#dlg');
+      function syncDlg() { $('#sHover').checked = settings.hover; $('#sThumbs').checked = settings.thumbs; $('#sNext').checked = settings.autonext; $('#sSave').value = settings.autosave }
+      $('#btnSet').onclick = () => { syncDlg(); dlg.showModal() }; $('#bDlgClose').onclick = () => dlg.close();
+      $('#sHover').onchange = e => { settings.hover = e.target.checked; saveSettings() };
+      $('#sThumbs').onchange = e => { settings.thumbs = e.target.checked; saveSettings(); if (settings.thumbs) render() };
+      $('#sNext').onchange = e => { settings.autonext = e.target.checked; saveSettings() };
+      $('#sSave').onchange = e => { settings.autosave = clamp(+e.target.value || 5, 1, 60); saveSettings() };
+      $('#bExport').onclick = () => { const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(progress, null, 2)], { type: 'application/json' })), download: 'vault-local-progress.json' }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000) };
+      $('#bImport').onclick = () => $('#inImport').click();
+      $('#inImport').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { const o = JSON.parse(await f.text()); let n = 0; for (const k in o) { const p = o[k]; if (p && typeof p.t === 'number') { progress[k] = { t: p.t, d: +p.d || 0, w: !!p.w, u: +p.u || Date.now() }; n++ } } saveProgress(); render(); toast('Imported progress for ' + n + ' video' + (n === 1 ? '' : 's')) } catch { toast('That file isn’t a valid progress export') } };
+      $('#bClearProg').onclick = () => { if (confirm('Reset watch progress for every video?')) { progress = {}; saveProgress(); render() } };
+      $('#bClearLib').onclick = () => { urls.forEach(u => URL.revokeObjectURL(u)); urls.clear(); keySet.clear(); library = []; dlg.close(); render() };
+      render();
+    })();
+  </script>
+</body>
+
+</html>
