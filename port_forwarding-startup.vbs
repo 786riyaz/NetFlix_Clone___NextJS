@@ -12,6 +12,7 @@ Set WshShell = CreateObject("WScript.Shell")
 
 ' Start Netflix project
 WshShell.Run "cmd /c cd /d E:\GIT\NetFlix_Clone___NextJS && npm start", 1, False
+' WshShell.Run "cmd /c cd /d E:\GIT\NetFlix_Clone___NextJS && npm start", 0, False
 
 ' Wait 10 seconds for Windows / project to initialize
 WScript.Sleep 10000

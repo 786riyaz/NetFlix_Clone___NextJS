@@ -19,18 +19,22 @@ time.sleep(5)
 
 print("Opening Terminal...")
 pyautogui.hotkey("ctrl", "`")
-time.sleep(2)
+# time.sleep(2)
+time.sleep(5)
 
 print("Opening Port Forwarding...")
 pyautogui.hotkey("ctrl", "shift", "3")
-time.sleep(1)
+# time.sleep(1)
+time.sleep(5)
 
 print("Entering port 3000...")
 pyautogui.write("3000", interval=0.1)
-time.sleep(0.5)
+# time.sleep(0.5)
+time.sleep(1)
 pyautogui.press("enter")
 
-time.sleep(3)
+# time.sleep(3)
+time.sleep(5)
 
 print("Port 3000 forwarded.")
 
@@ -42,14 +46,16 @@ print("Port 3000 forwarded.")
 print("Focusing Ports View...")
 
 pyautogui.hotkey("ctrl", "shift", "p")
-time.sleep(1)
+# time.sleep(1)
+time.sleep(5)
 
 pyautogui.write(
     "Ports: Focus on Ports View",
     interval=0.03
 )
 
-time.sleep(1)
+# time.sleep(1)
+time.sleep(30)
 pyautogui.press("enter")
 time.sleep(2)
 
