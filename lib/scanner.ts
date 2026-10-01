@@ -7,75 +7,75 @@ import { getVideoDir } from "./config";
 import { BUNDLED_FFMPEG_PATH, BUNDLED_FFPROBE_PATH } from "./ffmpeg-bin";
 import { isFastStart, remuxFastStart, FASTSTART_EXTS } from "./faststart";
 export const VIDEO_EXTENSIONS = new Set([
-"mp4", "webm", "ogg", "ogv", "mov", "mkv", "avi", "wmv", "flv", "m4v", "ts",
-// Additional containers that show up in real-world media libraries but
-// were previously silently skipped (no error, no log — the file just
-// never appeared). Missing from this set used to be the #1 cause of
-// "some videos don't show up."
-"mpg", "mpeg", "m2ts", "m2v", "mts", "3gp", "3g2", "vob", "divx", "rm",
-"rmvb", "asf", "f4v", "mxf", "qt", "mp2", "mpv", "mpe",
+    "mp4", "webm", "ogg", "ogv", "mov", "mkv", "avi", "wmv", "flv", "m4v", "ts",
+    // Additional containers that show up in real-world media libraries but
+    // were previously silently skipped (no error, no log — the file just
+    // never appeared). Missing from this set used to be the #1 cause of
+    // "some videos don't show up."
+    "mpg", "mpeg", "m2ts", "m2v", "mts", "3gp", "3g2", "vob", "divx", "rm",
+    "rmvb", "asf", "f4v", "mxf", "qt", "mp2", "mpv", "mpe",
 ]);
 export const MIME_TYPES: Record<string, string> = {
-mp4: "video/mp4",
-m4v: "video/mp4",
-webm: "video/webm",
-ogg: "video/ogg",
-ogv: "video/ogg",
-mov: "video/quicktime",
-mkv: "video/x-matroska",
-avi: "video/x-msvideo",
-wmv: "video/x-ms-wmv",
-flv: "video/x-flv",
-ts: "video/mp2t",
+    mp4: "video/mp4",
+    m4v: "video/mp4",
+    webm: "video/webm",
+    ogg: "video/ogg",
+    ogv: "video/ogg",
+    mov: "video/quicktime",
+    mkv: "video/x-matroska",
+    avi: "video/x-msvideo",
+    wmv: "video/x-ms-wmv",
+    flv: "video/x-flv",
+    ts: "video/mp2t",
 };
 const CACHE_ROOT = path.join(process.cwd(), ".cache");
 // Bundled binaries are used unless the user explicitly overrides them via env.
 const FFMPEG_BIN = process.env.FFMPEG_PATH || BUNDLED_FFMPEG_PATH || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_PATH || BUNDLED_FFPROBE_PATH || "ffprobe";
 interface CacheEntry {
-id: string;
-relativePath: string;
-size: number;
-mtimeMs: number;
-duration: number;
-hasThumbnail: boolean;
-// Fast-start optimization state for mp4/m4v/mov files (see lib/faststart.ts),
-// OR a full manual transcode (see lib/transcode.ts) for files with playback
-// issues at the source (VFR, HEVC, bloated bitrate). Either way: true means
-// an optimized copy exists at optimizedDir/<id>.mp4 and should be served
-// instead of the original. undefined = not checked yet.
-optimized?: boolean;
-codec?: string | null;
-width?: number | null;
-height?: number | null;
-bitRate?: number | null;
-vfr?: boolean;
-needsOptimize?: boolean;
-audioTracks?: AudioTrackInfo[];
-subtitleTracks?: SubtitleTrackInfo[];
-// Timeline-scrub preview thumbnails (see generateScrubFrames). undefined =
-// never attempted yet (triggers a backfill); null = attempted and not
-// available (too short a clip, or ffmpeg failed); object = generated.
-scrubSprite?: ScrubSpriteMeta | null;
+    id: string;
+    relativePath: string;
+    size: number;
+    mtimeMs: number;
+    duration: number;
+    hasThumbnail: boolean;
+    // Fast-start optimization state for mp4/m4v/mov files (see lib/faststart.ts),
+    // OR a full manual transcode (see lib/transcode.ts) for files with playback
+    // issues at the source (VFR, HEVC, bloated bitrate). Either way: true means
+    // an optimized copy exists at optimizedDir/<id>.mp4 and should be served
+    // instead of the original. undefined = not checked yet.
+    optimized?: boolean;
+    codec?: string | null;
+    width?: number | null;
+    height?: number | null;
+    bitRate?: number | null;
+    vfr?: boolean;
+    needsOptimize?: boolean;
+    audioTracks?: AudioTrackInfo[];
+    subtitleTracks?: SubtitleTrackInfo[];
+    // Timeline-scrub preview thumbnails (see generateScrubFrames). undefined =
+    // never attempted yet (triggers a backfill); null = attempted and not
+    // available (too short a clip, or ffmpeg failed); object = generated.
+    scrubSprite?: ScrubSpriteMeta | null;
 }
 interface CacheFile {
-entries: Record<string, CacheEntry>;
-ffmpegAvailable: boolean | null;
-// Maps relativePath -> id. Lets a rename update just the path on an
-// existing entry (keeping the same id) instead of the file appearing as
-// a brand new video — which would otherwise orphan watch progress,
-// watched status, and any optimize work already done, since those all
-// key off id in localStorage/the cache.
-pathIndex?: Record<string, string>;
+    entries: Record<string, CacheEntry>;
+    ffmpegAvailable: boolean | null;
+    // Maps relativePath -> id. Lets a rename update just the path on an
+    // existing entry (keeping the same id) instead of the file appearing as
+    // a brand new video — which would otherwise orphan watch progress,
+    // watched status, and any optimize work already done, since those all
+    // key off id in localStorage/the cache.
+    pathIndex?: Record<string, string>;
 }
 interface LibraryPaths {
-root: string;
-thumbDir: string;
-spriteDir: string;
-optimizedDir: string;
-audioDir: string;
-subtitleDir: string;
-cacheFile: string;
+    root: string;
+    thumbDir: string;
+    spriteDir: string;
+    optimizedDir: string;
+    audioDir: string;
+    subtitleDir: string;
+    cacheFile: string;
 }
 // The chosen library folder can change at runtime, so caches are keyed per
 // folder (by hash) instead of once at module load. That also means
@@ -84,63 +84,63 @@ let memCache: CacheFile | null = null;
 let memCacheRoot: string | null = null;
 let scanInFlight: Promise<VideoItem[]> | null = null;
 function cacheDirFor(root: string): string {
-const hash = crypto.createHash("md5").update(root).digest("hex").slice(0, 16);
-return path.join(CACHE_ROOT, "libraries", hash);
+    const hash = crypto.createHash("md5").update(root).digest("hex").slice(0, 16);
+    return path.join(CACHE_ROOT, "libraries", hash);
 }
 async function getPaths(): Promise<LibraryPaths | null> {
-const root = await getVideoDir();
-if (!root) return null;
-const dir = cacheDirFor(root);
-return {
-root,
-thumbDir: path.join(dir, "thumbnails"),
-spriteDir: path.join(dir, "sprites"),
-optimizedDir: path.join(dir, "optimized"),
-audioDir: path.join(dir, "audio-tracks"),
-subtitleDir: path.join(dir, "subtitles"),
-cacheFile: path.join(dir, "library.json"),
-};
+    const root = await getVideoDir();
+    if (!root) return null;
+    const dir = cacheDirFor(root);
+    return {
+        root,
+        thumbDir: path.join(dir, "thumbnails"),
+        spriteDir: path.join(dir, "sprites"),
+        optimizedDir: path.join(dir, "optimized"),
+        audioDir: path.join(dir, "audio-tracks"),
+        subtitleDir: path.join(dir, "subtitles"),
+        cacheFile: path.join(dir, "library.json"),
+    };
 }
 function makeId(): string {
-// No longer derived from the path — see the pathIndex comment above.
-return crypto.randomBytes(16).toString("hex");
+    // No longer derived from the path — see the pathIndex comment above.
+    return crypto.randomBytes(16).toString("hex");
 }
 async function ensureDirs(thumbDir: string, optimizedDir?: string, audioDir?: string, subtitleDir?: string, spriteDir?: string) {
-await fs.mkdir(thumbDir, { recursive: true });
-if (optimizedDir) await fs.mkdir(optimizedDir, { recursive: true });
-if (audioDir) await fs.mkdir(audioDir, { recursive: true });
-if (subtitleDir) await fs.mkdir(subtitleDir, { recursive: true });
-if (spriteDir) await fs.mkdir(spriteDir, { recursive: true });
+    await fs.mkdir(thumbDir, { recursive: true });
+    if (optimizedDir) await fs.mkdir(optimizedDir, { recursive: true });
+    if (audioDir) await fs.mkdir(audioDir, { recursive: true });
+    if (subtitleDir) await fs.mkdir(subtitleDir, { recursive: true });
+    if (spriteDir) await fs.mkdir(spriteDir, { recursive: true });
 }
 async function loadCache(paths: LibraryPaths): Promise<CacheFile> {
-if (memCache && memCacheRoot === paths.root) return memCache;
-try {
-const raw = await fs.readFile(paths.cacheFile, "utf-8");
-memCache = JSON.parse(raw);
-} catch {
-memCache = { entries: {}, ffmpegAvailable: null, pathIndex: {} };
-}
-// Migration for caches saved before pathIndex existed: rebuild it from
-// the entries that are already there. Ids themselves don't change, so
-// existing thumbnails/optimized copies/watch-progress all stay valid.
-if (!memCache!.pathIndex) {
-memCache!.pathIndex = {};
-for (const entry of Object.values(memCache!.entries)) {
-memCache!.pathIndex[entry.relativePath] = entry.id;
-}
-}
-memCacheRoot = paths.root;
-return memCache!;
+    if (memCache && memCacheRoot === paths.root) return memCache;
+    try {
+        const raw = await fs.readFile(paths.cacheFile, "utf-8");
+        memCache = JSON.parse(raw);
+    } catch {
+        memCache = { entries: {}, ffmpegAvailable: null, pathIndex: {} };
+    }
+    // Migration for caches saved before pathIndex existed: rebuild it from
+    // the entries that are already there. Ids themselves don't change, so
+    // existing thumbnails/optimized copies/watch-progress all stay valid.
+    if (!memCache!.pathIndex) {
+        memCache!.pathIndex = {};
+        for (const entry of Object.values(memCache!.entries)) {
+            memCache!.pathIndex[entry.relativePath] = entry.id;
+        }
+    }
+    memCacheRoot = paths.root;
+    return memCache!;
 }
 async function saveCache(paths: LibraryPaths, cache: CacheFile) {
-await ensureDirs(paths.thumbDir, paths.optimizedDir, paths.audioDir, paths.subtitleDir, paths.spriteDir);
-await fs.writeFile(paths.cacheFile, JSON.stringify(cache), "utf-8");
+    await ensureDirs(paths.thumbDir, paths.optimizedDir, paths.audioDir, paths.subtitleDir, paths.spriteDir);
+    await fs.writeFile(paths.cacheFile, JSON.stringify(cache), "utf-8");
 }
 /** Call after the user picks a new library folder so stale data isn't served. */
 export function invalidateLibraryCache() {
-memCache = null;
-memCacheRoot = null;
-scanInFlight = null;
+    memCache = null;
+    memCacheRoot = null;
+    scanInFlight = null;
 }
 // --- background fast-start remux queue ---
 // Deliberately separate from the scan itself: remuxing 300 files (even at
@@ -152,262 +152,284 @@ const remuxInProgress = new Set<string>();
 let remuxQueueRunning = false;
 const remuxQueue: { paths: LibraryPaths; id: string; absPath: string }[] = [];
 async function processRemuxQueue() {
-if (remuxQueueRunning) return;
-remuxQueueRunning = true;
-try {
-while (remuxQueue.length) {
-const batch = remuxQueue.splice(0, 2);
-await Promise.all(
-batch.map(async ({ paths, id, absPath }) => {
-if (remuxInProgress.has(id)) return;
-remuxInProgress.add(id);
-try {
-const outPath = path.join(paths.optimizedDir, `${id}.mp4`);
-const ok = await remuxFastStart(FFMPEG_BIN, absPath, outPath);
-const cache = await loadCache(paths);
-if (cache.entries[id]) {
-cache.entries[id].optimized = ok;
-await saveCache(paths, cache);
-}
-if (!ok) await fs.unlink(outPath).catch(() => {});
-} finally {
-remuxInProgress.delete(id);
-}
-})
-);
-}
-} finally {
-remuxQueueRunning = false;
-}
+    if (remuxQueueRunning) return;
+    remuxQueueRunning = true;
+    try {
+        while (remuxQueue.length) {
+            const batch = remuxQueue.splice(0, 2);
+            await Promise.all(
+                batch.map(async ({ paths, id, absPath }) => {
+                    if (remuxInProgress.has(id)) return;
+                    remuxInProgress.add(id);
+                    try {
+                        const outPath = path.join(paths.optimizedDir, `${id}.mp4`);
+                        const ok = await remuxFastStart(FFMPEG_BIN, absPath, outPath);
+                        const cache = await loadCache(paths);
+                        if (cache.entries[id]) {
+                            cache.entries[id].optimized = ok;
+                            await saveCache(paths, cache);
+                        }
+                        if (!ok) await fs.unlink(outPath).catch(() => { });
+                    } finally {
+                        remuxInProgress.delete(id);
+                    }
+                })
+            );
+        }
+    } finally {
+        remuxQueueRunning = false;
+    }
 }
 const metaBackfillInProgress = new Set<string>();
 function scheduleMetaBackfill(paths: LibraryPaths, id: string, absPath: string, cache: CacheFile) {
-if (cache.entries[id]?.audioTracks !== undefined) return; // already probed
-if (metaBackfillInProgress.has(id)) return;
-metaBackfillInProgress.add(id);
-probeMeta(absPath)
-.then(async (meta) => {
-const fresh = await loadCache(paths);
-const entry = fresh.entries[id];
-if (entry) {
-entry.codec = meta.codec;
-entry.width = meta.width;
-entry.height = meta.height;
-entry.bitRate = meta.bitRate;
-entry.vfr = meta.vfr;
-entry.needsOptimize = needsOptimize(meta);
-entry.audioTracks = meta.audioTracks;
-entry.subtitleTracks = meta.subtitleTracks;
-await saveCache(paths, fresh);
-}
-})
-.finally(() => metaBackfillInProgress.delete(id));
+    if (cache.entries[id]?.audioTracks !== undefined) return; // already probed
+    if (metaBackfillInProgress.has(id)) return;
+    metaBackfillInProgress.add(id);
+    probeMeta(absPath)
+        .then(async (meta) => {
+            const fresh = await loadCache(paths);
+            const entry = fresh.entries[id];
+            if (entry) {
+                entry.codec = meta.codec;
+                entry.width = meta.width;
+                entry.height = meta.height;
+                entry.bitRate = meta.bitRate;
+                entry.vfr = meta.vfr;
+                entry.needsOptimize = needsOptimize(meta);
+                entry.audioTracks = meta.audioTracks;
+                entry.subtitleTracks = meta.subtitleTracks;
+                await saveCache(paths, fresh);
+            }
+        })
+        .finally(() => metaBackfillInProgress.delete(id));
 }
 function scheduleFastStartCheck(
-paths: LibraryPaths,
-id: string,
-absPath: string,
-ext: string,
-cache: CacheFile
+    paths: LibraryPaths,
+    id: string,
+    absPath: string,
+    ext: string,
+    cache: CacheFile
 ) {
-if (!FASTSTART_EXTS.has(ext)) return;
-if (cache.entries[id]?.optimized !== undefined) return; // already checked
-isFastStart(absPath).then((fast) => {
-if (fast === null) return; // couldn't determine — leave alone
-if (fast === true) {
-if (cache.entries[id]) cache.entries[id].optimized = false; // fine as-is, no copy needed
-return;
-}
-remuxQueue.push({ paths, id, absPath });
-processRemuxQueue();
-});
+    if (!FASTSTART_EXTS.has(ext)) return;
+    if (cache.entries[id]?.optimized !== undefined) return; // already checked
+    isFastStart(absPath).then((fast) => {
+        if (fast === null) return; // couldn't determine — leave alone
+        if (fast === true) {
+            if (cache.entries[id]) cache.entries[id].optimized = false; // fine as-is, no copy needed
+            return;
+        }
+        remuxQueue.push({ paths, id, absPath });
+        processRemuxQueue();
+    });
 }
 // --- simple concurrency-limited queue so we never spawn unbounded ffmpeg/ffprobe processes ---
 async function runWithConcurrency<T, R>(
-items: T[],
-limit: number,
-worker: (item: T) => Promise<R>
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<R>
 ): Promise<R[]> {
-const results: R[] = new Array(items.length);
-let idx = 0;
-async function next(): Promise<void> {
-const current = idx++;
-if (current >= items.length) return;
-results[current] = await worker(items[current]);
-return next();
+    const results: R[] = new Array(items.length);
+    let idx = 0;
+    async function next(): Promise<void> {
+        const current = idx++;
+        if (current >= items.length) return;
+        results[current] = await worker(items[current]);
+        return next();
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => next()));
+    return results;
 }
-await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => next()));
-return results;
+// OneDrive/cloud-sync folders sometimes reject a burst of simultaneous
+// file-handle opens from their filter driver with EPERM/EBUSY even though
+// nothing is actually wrong with the file — a transient throttling
+// response, not a real permission denial. A couple of retries with a short
+// backoff clears this without masking a genuine, persistent EPERM (which
+// is almost always Windows "Controlled folder access" blocking node.exe,
+// or OneDrive itself being paused/signed out).
+async function statWithRetry(absPath: string, attempts = 3): Promise<import("fs").Stats | null> {
+    for (let i = 0; i < attempts; i++) {
+        try {
+            return await fs.stat(absPath);
+        } catch (err: any) {
+            const transient = err?.code === "EPERM" || err?.code === "EBUSY";
+            if (!transient || i === attempts - 1) {
+                console.error(`[scanner] fs.stat failed for "${absPath}" after ${i + 1} attempt(s) (${err?.code || err?.message || err}) — this file will be missing from the library until it's readable again.`);
+                return null;
+            }
+            await new Promise((r) => setTimeout(r, 150 * (i + 1)));
+        }
+    }
+    return null;
 }
 let ffmpegCheckLogged = false;
 function checkFfmpegAvailable(): Promise<boolean> {
-return new Promise((resolve) => {
-const p = spawn(FFPROBE_BIN, ["-version"]);
-p.on("error", (err: any) => {
-if (!ffmpegCheckLogged) {
-ffmpegCheckLogged = true;
-console.error(
-`[ffmpeg] Could not run ffprobe at "${FFPROBE_BIN}" — ${err?.code || err?.message || err}. ` +
-`Thumbnails, durations, audio-track and subtitle detection are all disabled until this is fixed. ` +
-`BUNDLED_FFPROBE_PATH resolved to: ${BUNDLED_FFPROBE_PATH || "(null — ffprobe-static failed to load)"}`
-);
-}
-resolve(false);
-});
-p.on("exit", (code) => {
-if (code !== 0 && !ffmpegCheckLogged) {
-ffmpegCheckLogged = true;
-console.error(`[ffmpeg] ffprobe at "${FFPROBE_BIN}" exited with code ${code} on "-version" check.`);
-}
-resolve(code === 0);
-});
-});
+    return new Promise((resolve) => {
+        const p = spawn(FFPROBE_BIN, ["-version"]);
+        p.on("error", (err: any) => {
+            if (!ffmpegCheckLogged) {
+                ffmpegCheckLogged = true;
+                console.error(
+                    `[ffmpeg] Could not run ffprobe at "${FFPROBE_BIN}" — ${err?.code || err?.message || err}. ` +
+                    `Thumbnails, durations, audio-track and subtitle detection are all disabled until this is fixed. ` +
+                    `BUNDLED_FFPROBE_PATH resolved to: ${BUNDLED_FFPROBE_PATH || "(null — ffprobe-static failed to load)"}`
+                );
+            }
+            resolve(false);
+        });
+        p.on("exit", (code) => {
+            if (code !== 0 && !ffmpegCheckLogged) {
+                ffmpegCheckLogged = true;
+                console.error(`[ffmpeg] ffprobe at "${FFPROBE_BIN}" exited with code ${code} on "-version" check.`);
+            }
+            resolve(code === 0);
+        });
+    });
 }
 export type SubtitleCodec = "text" | "image"; // image-based (PGS/VobSub) can't be converted to WebVTT
 const TEXT_SUBTITLE_CODECS = new Set(["subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"]);
 function probeMeta(absPath: string): Promise<{
-duration: number;
-codec: string | null;
-width: number | null;
-height: number | null;
-bitRate: number | null;
-vfr: boolean;
-audioTracks: AudioTrackInfo[];
-subtitleTracks: SubtitleTrackInfo[];
+    duration: number;
+    codec: string | null;
+    width: number | null;
+    height: number | null;
+    bitRate: number | null;
+    vfr: boolean;
+    audioTracks: AudioTrackInfo[];
+    subtitleTracks: SubtitleTrackInfo[];
 }> {
-return new Promise((resolve) => {
-const empty = {
-duration: 0,
-codec: null,
-width: null,
-height: null,
-bitRate: null,
-vfr: false,
-audioTracks: [],
-subtitleTracks: [],
-};
-const args = [
-"-v", "error",
-"-show_entries",
-"format=duration:stream=index,codec_type,codec_name,width,height,bit_rate,r_frame_rate,avg_frame_rate:stream_tags=language,title",
-"-of", "json",
-absPath,
-];
-const p = spawn(FFPROBE_BIN, args);
-let out = "";
-let errOut = "";
-p.stdout.on("data", (d) => (out += d.toString()));
-p.stderr.on("data", (d) => (errOut += d.toString()));
-p.on("error", (err) => {
-console.error(`[probeMeta] failed to spawn ffprobe for "${absPath}":`, err.message);
-resolve(empty);
-});
-p.on("exit", (code) => {
-if (code !== 0) {
-console.error(`[probeMeta] ffprobe exited with code ${code} for "${absPath}": ${errOut.trim()}`);
-resolve(empty);
-return;
-}
-try {
-const parsed = JSON.parse(out);
-const duration = parseFloat(parsed?.format?.duration);
-const streams: any[] = parsed?.streams || [];
-const videoStream = streams.find((s) => s.codec_type === "video");
-const audioStreams = streams.filter((s) => s.codec_type === "audio");
-const subtitleStreams = streams.filter((s) => s.codec_type === "subtitle");
-const codec: string | null = videoStream?.codec_name ?? null;
-const width: number | null = videoStream?.width ?? null;
-const height: number | null = videoStream?.height ?? null;
-const bitRate: number | null = videoStream?.bit_rate ? parseInt(videoStream.bit_rate, 10) : null;
-// Format Factory (and similar tools) frequently produce variable
-// frame rate output even from a constant-rate source. r_frame_rate
-// (the stream's stated rate) diverging from avg_frame_rate (the
-// actual average) is the standard signal for VFR — and VFR is one
-// of the most common causes of stutter that shows up in *every*
-// player, not just ours, because the decoder keeps mistiming frames.
-const rFps = parseFrameRate(videoStream?.r_frame_rate);
-const avgFps = parseFrameRate(videoStream?.avg_frame_rate);
-const vfr = rFps !== null && avgFps !== null && Math.abs(rFps - avgFps) > 0.5;
-const audioTracks: AudioTrackInfo[] = audioStreams.map((s, i) => ({
-index: i,
-codec: s.codec_name ?? null,
-language: s.tags?.language ?? null,
-title: s.tags?.title ?? null,
-}));
-const subtitleTracks: SubtitleTrackInfo[] = subtitleStreams.map((s, i) => ({
-index: i,
-codec: s.codec_name ?? null,
-language: s.tags?.language ?? null,
-title: s.tags?.title ?? null,
-convertible: TEXT_SUBTITLE_CODECS.has((s.codec_name || "").toLowerCase()),
-}));
-if (audioTracks.length === 0 && audioStreams.length === 0) {
-// Not necessarily wrong (some files genuinely have one or zero audio
-// streams) but worth a breadcrumb, since "why didn't the Audio
-// button show up" is otherwise a black box.
-console.warn(`[probeMeta] no audio streams detected in "${absPath}" — raw stream list:`, JSON.stringify(streams.map((s: any) => ({ index: s.index, codec_type: s.codec_type, codec_name: s.codec_name }))));
-}
-resolve({
-duration: Number.isFinite(duration) ? duration : 0,
-codec,
-width,
-height,
-bitRate,
-vfr,
-audioTracks,
-subtitleTracks,
-});
-} catch (err: any) {
-console.error(`[probeMeta] failed to parse ffprobe JSON for "${absPath}":`, err?.message, "| raw output:", out.slice(0, 500));
-resolve(empty);
-}
-});
-});
+    return new Promise((resolve) => {
+        const empty = {
+            duration: 0,
+            codec: null,
+            width: null,
+            height: null,
+            bitRate: null,
+            vfr: false,
+            audioTracks: [],
+            subtitleTracks: [],
+        };
+        const args = [
+            "-v", "error",
+            "-show_entries",
+            "format=duration:stream=index,codec_type,codec_name,width,height,bit_rate,r_frame_rate,avg_frame_rate:stream_tags=language,title",
+            "-of", "json",
+            absPath,
+        ];
+        const p = spawn(FFPROBE_BIN, args);
+        let out = "";
+        let errOut = "";
+        p.stdout.on("data", (d) => (out += d.toString()));
+        p.stderr.on("data", (d) => (errOut += d.toString()));
+        p.on("error", (err) => {
+            console.error(`[probeMeta] failed to spawn ffprobe for "${absPath}":`, err.message);
+            resolve(empty);
+        });
+        p.on("exit", (code) => {
+            if (code !== 0) {
+                console.error(`[probeMeta] ffprobe exited with code ${code} for "${absPath}": ${errOut.trim()}`);
+                resolve(empty);
+                return;
+            }
+            try {
+                const parsed = JSON.parse(out);
+                const duration = parseFloat(parsed?.format?.duration);
+                const streams: any[] = parsed?.streams || [];
+                const videoStream = streams.find((s) => s.codec_type === "video");
+                const audioStreams = streams.filter((s) => s.codec_type === "audio");
+                const subtitleStreams = streams.filter((s) => s.codec_type === "subtitle");
+                const codec: string | null = videoStream?.codec_name ?? null;
+                const width: number | null = videoStream?.width ?? null;
+                const height: number | null = videoStream?.height ?? null;
+                const bitRate: number | null = videoStream?.bit_rate ? parseInt(videoStream.bit_rate, 10) : null;
+                // Format Factory (and similar tools) frequently produce variable
+                // frame rate output even from a constant-rate source. r_frame_rate
+                // (the stream's stated rate) diverging from avg_frame_rate (the
+                // actual average) is the standard signal for VFR — and VFR is one
+                // of the most common causes of stutter that shows up in *every*
+                // player, not just ours, because the decoder keeps mistiming frames.
+                const rFps = parseFrameRate(videoStream?.r_frame_rate);
+                const avgFps = parseFrameRate(videoStream?.avg_frame_rate);
+                const vfr = rFps !== null && avgFps !== null && Math.abs(rFps - avgFps) > 0.5;
+                const audioTracks: AudioTrackInfo[] = audioStreams.map((s, i) => ({
+                    index: i,
+                    codec: s.codec_name ?? null,
+                    language: s.tags?.language ?? null,
+                    title: s.tags?.title ?? null,
+                }));
+                const subtitleTracks: SubtitleTrackInfo[] = subtitleStreams.map((s, i) => ({
+                    index: i,
+                    codec: s.codec_name ?? null,
+                    language: s.tags?.language ?? null,
+                    title: s.tags?.title ?? null,
+                    convertible: TEXT_SUBTITLE_CODECS.has((s.codec_name || "").toLowerCase()),
+                }));
+                if (audioTracks.length === 0 && audioStreams.length === 0) {
+                    // Not necessarily wrong (some files genuinely have one or zero audio
+                    // streams) but worth a breadcrumb, since "why didn't the Audio
+                    // button show up" is otherwise a black box.
+                    console.warn(`[probeMeta] no audio streams detected in "${absPath}" — raw stream list:`, JSON.stringify(streams.map((s: any) => ({ index: s.index, codec_type: s.codec_type, codec_name: s.codec_name }))));
+                }
+                resolve({
+                    duration: Number.isFinite(duration) ? duration : 0,
+                    codec,
+                    width,
+                    height,
+                    bitRate,
+                    vfr,
+                    audioTracks,
+                    subtitleTracks,
+                });
+            } catch (err: any) {
+                console.error(`[probeMeta] failed to parse ffprobe JSON for "${absPath}":`, err?.message, "| raw output:", out.slice(0, 500));
+                resolve(empty);
+            }
+        });
+    });
 }
 function parseFrameRate(s: string | undefined): number | null {
-if (!s) return null;
-const [num, den] = s.split("/").map(Number);
-if (!den) return num || null;
-return num / den;
+    if (!s) return null;
+    const [num, den] = s.split("/").map(Number);
+    if (!den) return num || null;
+    return num / den;
 }
 // Heuristic for "this file will probably stutter on playback, in any
 // player" — used to surface an opt-in Optimize button rather than a hard
 // rule, since it's a judgment call, not a certainty.
 function needsOptimize(meta: { codec: string | null; width: number | null; height: number | null; bitRate: number | null; vfr: boolean }): boolean {
-if (meta.vfr) return true;
-if (meta.codec === "hevc" || meta.codec === "h265") return true;
-if (meta.bitRate && meta.width && meta.height) {
-const megapixels = (meta.width * meta.height) / 1_000_000;
-const mbps = meta.bitRate / 1_000_000;
-// Rough ceiling for a "sane" H.264-family bitrate per megapixel;
-// well above this usually means a bloated re-encode, which is heavier
-// to decode than the resolution warrants.
-if (megapixels > 0 && mbps / megapixels > 12) return true;
-}
-return false;
+    if (meta.vfr) return true;
+    if (meta.codec === "hevc" || meta.codec === "h265") return true;
+    if (meta.bitRate && meta.width && meta.height) {
+        const megapixels = (meta.width * meta.height) / 1_000_000;
+        const mbps = meta.bitRate / 1_000_000;
+        // Rough ceiling for a "sane" H.264-family bitrate per megapixel;
+        // well above this usually means a bloated re-encode, which is heavier
+        // to decode than the resolution warrants.
+        if (megapixels > 0 && mbps / megapixels > 12) return true;
+    }
+    return false;
 }
 function generateThumbnail(
-absPath: string,
-id: string,
-duration: number,
-thumbDir: string
+    absPath: string,
+    id: string,
+    duration: number,
+    thumbDir: string
 ): Promise<boolean> {
-return new Promise((resolve) => {
-const outPath = path.join(thumbDir, `${id}.jpg`);
-const seek = duration > 4 ? Math.min(duration * 0.15, 30) : 0.5;
-const args = [
-"-y",
-"-ss", String(seek),
-"-i", absPath,
-"-frames:v", "1",
-"-vf", "scale=440:-1",
-"-q:v", "4",
-outPath,
-];
-const p = spawn(FFMPEG_BIN, args);
-p.on("error", () => resolve(false));
-p.on("exit", (code) => resolve(code === 0));
-});
+    return new Promise((resolve) => {
+        const outPath = path.join(thumbDir, `${id}.jpg`);
+        const seek = duration > 4 ? Math.min(duration * 0.15, 30) : 0.5;
+        const args = [
+            "-y",
+            "-ss", String(seek),
+            "-i", absPath,
+            "-frames:v", "1",
+            "-vf", "scale=440:-1",
+            "-q:v", "4",
+            outPath,
+        ];
+        const p = spawn(FFMPEG_BIN, args);
+        p.on("error", () => resolve(false));
+        p.on("exit", (code) => resolve(code === 0));
+    });
 }
 // --- timeline-scrub thumbnails ---
 // A handful of small JPEGs per video, evenly spaced through its runtime,
@@ -426,58 +448,58 @@ const SCRUB_TILE_H = 90;
 const SCRUB_MAX_FRAMES = 60;
 const SCRUB_MIN_FRAMES = 4;
 function planScrubFrames(duration: number): { count: number; interval: number } | null {
-if (!duration || duration < 2) return null;
-let count = Math.round(duration / 5);
-count = Math.max(SCRUB_MIN_FRAMES, Math.min(SCRUB_MAX_FRAMES, count));
-count = Math.min(count, Math.max(2, Math.floor(duration))); // never denser than ~1 frame/sec
-const interval = duration / count;
-return { count, interval };
+    if (!duration || duration < 2) return null;
+    let count = Math.round(duration / 5);
+    count = Math.max(SCRUB_MIN_FRAMES, Math.min(SCRUB_MAX_FRAMES, count));
+    count = Math.min(count, Math.max(2, Math.floor(duration))); // never denser than ~1 frame/sec
+    const interval = duration / count;
+    return { count, interval };
 }
 function grabScrubFrame(absPath: string, outPath: string, seek: number): Promise<boolean> {
-return new Promise((resolve) => {
-const args = [
-"-y",
-"-ss", String(seek),
-"-i", absPath,
-"-frames:v", "1",
-"-vf", `scale=${SCRUB_TILE_W}:${SCRUB_TILE_H}:force_original_aspect_ratio=increase,crop=${SCRUB_TILE_W}:${SCRUB_TILE_H}`,
-"-q:v", "5",
-outPath,
-];
-const p = spawn(FFMPEG_BIN, args);
-p.on("error", () => resolve(false));
-p.on("exit", (code) => resolve(code === 0));
-});
+    return new Promise((resolve) => {
+        const args = [
+            "-y",
+            "-ss", String(seek),
+            "-i", absPath,
+            "-frames:v", "1",
+            "-vf", `scale=${SCRUB_TILE_W}:${SCRUB_TILE_H}:force_original_aspect_ratio=increase,crop=${SCRUB_TILE_W}:${SCRUB_TILE_H}`,
+            "-q:v", "5",
+            outPath,
+        ];
+        const p = spawn(FFMPEG_BIN, args);
+        p.on("error", () => resolve(false));
+        p.on("exit", (code) => resolve(code === 0));
+    });
 }
 async function generateScrubFrames(
-absPath: string,
-id: string,
-duration: number,
-spriteDir: string
+    absPath: string,
+    id: string,
+    duration: number,
+    spriteDir: string
 ): Promise<ScrubSpriteMeta | null> {
-const plan = planScrubFrames(duration);
-if (!plan) return null;
-const { count, interval } = plan;
-const indexes = Array.from({ length: count }, (_, i) => i);
-// A handful of these at once — fast seeks are cheap, but still real
-// ffmpeg processes, so this is bounded the same way file stat-ing and
-// thumbnailing are elsewhere in this file.
-const oks = await runWithConcurrency(indexes, 4, (i) =>
-grabScrubFrame(absPath, path.join(spriteDir, `${id}_${i}.jpg`), Math.min(duration - 0.1, i * interval))
-);
-const okCount = oks.filter(Boolean).length;
-if (okCount === 0) return null;
-return { count, interval, tileW: SCRUB_TILE_W, tileH: SCRUB_TILE_H };
+    const plan = planScrubFrames(duration);
+    if (!plan) return null;
+    const { count, interval } = plan;
+    const indexes = Array.from({ length: count }, (_, i) => i);
+    // A handful of these at once — fast seeks are cheap, but still real
+    // ffmpeg processes, so this is bounded the same way file stat-ing and
+    // thumbnailing are elsewhere in this file.
+    const oks = await runWithConcurrency(indexes, 4, (i) =>
+        grabScrubFrame(absPath, path.join(spriteDir, `${id}_${i}.jpg`), Math.min(duration - 0.1, i * interval))
+    );
+    const okCount = oks.filter(Boolean).length;
+    if (okCount === 0) return null;
+    return { count, interval, tileW: SCRUB_TILE_W, tileH: SCRUB_TILE_H };
 }
 async function deleteScrubFrames(spriteDir: string, id: string) {
-// Sweeps the full possible index range rather than looking up how many
-// frames this particular video actually got — unlinking a path that was
-// never written is a harmless no-op (caught below), and this way a
-// video that predates a change to SCRUB_MAX_FRAMES still gets fully
-// cleaned up.
-await Promise.all(
-Array.from({ length: SCRUB_MAX_FRAMES }, (_, i) => fs.unlink(path.join(spriteDir, `${id}_${i}.jpg`)).catch(() => {}))
-);
+    // Sweeps the full possible index range rather than looking up how many
+    // frames this particular video actually got — unlinking a path that was
+    // never written is a harmless no-op (caught below), and this way a
+    // video that predates a change to SCRUB_MAX_FRAMES still gets fully
+    // cleaned up.
+    await Promise.all(
+        Array.from({ length: SCRUB_MAX_FRAMES }, (_, i) => fs.unlink(path.join(spriteDir, `${id}_${i}.jpg`)).catch(() => { }))
+    );
 }
 // Generation runs entirely in the background, for brand-new files just as
 // much as for backfilling ones scanned before this feature existed — a
@@ -490,110 +512,110 @@ const spriteInProgress = new Set<string>();
 let spriteQueueRunning = false;
 const spriteQueue: { paths: LibraryPaths; id: string; absPath: string; duration: number }[] = [];
 async function processSpriteQueue() {
-if (spriteQueueRunning) return;
-spriteQueueRunning = true;
-try {
-while (spriteQueue.length) {
-const { paths, id, absPath, duration } = spriteQueue.shift()!;
-if (spriteInProgress.has(id)) continue;
-spriteInProgress.add(id);
-try {
-const sprite = await generateScrubFrames(absPath, id, duration, paths.spriteDir);
-const fresh = await loadCache(paths);
-if (fresh.entries[id]) {
-fresh.entries[id].scrubSprite = sprite;
-await saveCache(paths, fresh);
-}
-} finally {
-spriteInProgress.delete(id);
-}
-}
-} finally {
-spriteQueueRunning = false;
-}
+    if (spriteQueueRunning) return;
+    spriteQueueRunning = true;
+    try {
+        while (spriteQueue.length) {
+            const { paths, id, absPath, duration } = spriteQueue.shift()!;
+            if (spriteInProgress.has(id)) continue;
+            spriteInProgress.add(id);
+            try {
+                const sprite = await generateScrubFrames(absPath, id, duration, paths.spriteDir);
+                const fresh = await loadCache(paths);
+                if (fresh.entries[id]) {
+                    fresh.entries[id].scrubSprite = sprite;
+                    await saveCache(paths, fresh);
+                }
+            } finally {
+                spriteInProgress.delete(id);
+            }
+        }
+    } finally {
+        spriteQueueRunning = false;
+    }
 }
 function scheduleScrubSpriteBackfill(
-paths: LibraryPaths,
-id: string,
-absPath: string,
-duration: number,
-cache: CacheFile
+    paths: LibraryPaths,
+    id: string,
+    absPath: string,
+    duration: number,
+    cache: CacheFile
 ) {
-if (cache.entries[id]?.scrubSprite !== undefined) return; // already attempted
-if (spriteInProgress.has(id)) return;
-if (spriteQueue.some((q) => q.id === id)) return;
-spriteQueue.push({ paths, id, absPath, duration });
-processSpriteQueue();
+    if (cache.entries[id]?.scrubSprite !== undefined) return; // already attempted
+    if (spriteInProgress.has(id)) return;
+    if (spriteQueue.some((q) => q.id === id)) return;
+    spriteQueue.push({ paths, id, absPath, duration });
+    processSpriteQueue();
 }
 // Tracks real (resolved) directory paths we've already descended into, so a
 // symlink loop (A/link -> B, B/link -> A) can't recurse forever — depth alone
 // doesn't catch a loop shorter than the depth cap.
 function skipExt(name: string): string {
-return path.extname(name).slice(1).toLowerCase();
+    return path.extname(name).slice(1).toLowerCase();
 }
 async function walk(
-dir: string,
-base: string,
-out: { relativePath: string; abs: string; folder: string }[],
-depth = 0,
-visitedReal = new Set<string>()
+    dir: string,
+    base: string,
+    out: { relativePath: string; abs: string; folder: string }[],
+    depth = 0,
+    visitedReal = new Set<string>()
 ) {
-if (depth > 20) {
-console.warn(`[scanner] hit max recursion depth (20) at "${dir}" — stopping here. If your real folders are nested deeper than this, some videos won't be found.`);
-return;
-}
-let entries;
-try {
-entries = await fs.readdir(dir, { withFileTypes: true });
-} catch (err: any) {
-console.error(`[scanner] could not read directory "${dir}": ${err?.code || err?.message || err} — anything inside it will be missing from the library.`);
-return;
-}
-for (const entry of entries) {
-if (entry.name.startsWith(".")) continue;
-const abs = path.join(dir, entry.name);
-let isDir = entry.isDirectory();
-let isFile = entry.isFile();
-// Dirent.isDirectory()/isFile() report the LINK's type, not its target —
-// so a symlinked folder or file (common in media libraries assembled
-// from multiple drives/shows) was previously silently skipped entirely.
-// Resolve it with a real stat (which follows symlinks) instead.
-if (entry.isSymbolicLink()) {
-const real = await fs.realpath(abs).catch(() => null);
-const stat = real ? await fs.stat(real).catch(() => null) : null;
-if (!stat) {
-console.warn(`[scanner] broken symlink, skipping: "${abs}"`);
-continue;
-}
-isDir = stat.isDirectory();
-isFile = stat.isFile();
-if (isDir) {
-if (visitedReal.has(real!)) {
-console.warn(`[scanner] symlink loop detected at "${abs}" -> "${real}", not descending again.`);
-continue;
-}
-visitedReal.add(real!);
-}
-}
-if (isDir) {
-await walk(abs, base, out, depth + 1, visitedReal);
-} else if (isFile) {
-const ext = skipExt(entry.name);
-if (VIDEO_EXTENSIONS.has(ext)) {
-const relativePath = path.relative(base, abs).split(path.sep).join("/");
-const folder = immediateFolder(relativePath);
-out.push({ relativePath, abs, folder });
-} else if (ext && entry.name.length > ext.length + 1) {
-// Breadcrumb for "why isn't my file showing up" — doesn't log every
-// non-video file (images, nfo, srt siblings are normal clutter),
-// only ones that look plausibly like an unsupported video container.
-const LIKELY_VIDEO_HINT = /^(mp4|mkv|avi|mov|mpg|mpeg|wmv|flv|webm|ts|vob|rm|asf|divx|m2ts|m2v|mts|3gp|f4v|mxf|ogv|ogg)\d?$/i;
-if (LIKELY_VIDEO_HINT.test(ext)) {
-console.warn(`[scanner] skipped "${abs}" — extension ".${ext}" isn't in the recognized video list.`);
-}
-}
-}
-}
+    if (depth > 20) {
+        console.warn(`[scanner] hit max recursion depth (20) at "${dir}" — stopping here. If your real folders are nested deeper than this, some videos won't be found.`);
+        return;
+    }
+    let entries;
+    try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (err: any) {
+        console.error(`[scanner] could not read directory "${dir}": ${err?.code || err?.message || err} — anything inside it will be missing from the library.`);
+        return;
+    }
+    for (const entry of entries) {
+        if (entry.name.startsWith(".")) continue;
+        const abs = path.join(dir, entry.name);
+        let isDir = entry.isDirectory();
+        let isFile = entry.isFile();
+        // Dirent.isDirectory()/isFile() report the LINK's type, not its target —
+        // so a symlinked folder or file (common in media libraries assembled
+        // from multiple drives/shows) was previously silently skipped entirely.
+        // Resolve it with a real stat (which follows symlinks) instead.
+        if (entry.isSymbolicLink()) {
+            const real = await fs.realpath(abs).catch(() => null);
+            const stat = real ? await fs.stat(real).catch(() => null) : null;
+            if (!stat) {
+                console.warn(`[scanner] broken symlink, skipping: "${abs}"`);
+                continue;
+            }
+            isDir = stat.isDirectory();
+            isFile = stat.isFile();
+            if (isDir) {
+                if (visitedReal.has(real!)) {
+                    console.warn(`[scanner] symlink loop detected at "${abs}" -> "${real}", not descending again.`);
+                    continue;
+                }
+                visitedReal.add(real!);
+            }
+        }
+        if (isDir) {
+            await walk(abs, base, out, depth + 1, visitedReal);
+        } else if (isFile) {
+            const ext = skipExt(entry.name);
+            if (VIDEO_EXTENSIONS.has(ext)) {
+                const relativePath = path.relative(base, abs).split(path.sep).join("/");
+                const folder = immediateFolder(relativePath);
+                out.push({ relativePath, abs, folder });
+            } else if (ext && entry.name.length > ext.length + 1) {
+                // Breadcrumb for "why isn't my file showing up" — doesn't log every
+                // non-video file (images, nfo, srt siblings are normal clutter),
+                // only ones that look plausibly like an unsupported video container.
+                const LIKELY_VIDEO_HINT = /^(mp4|mkv|avi|mov|mpg|mpeg|wmv|flv|webm|ts|vob|rm|asf|divx|m2ts|m2v|mts|3gp|f4v|mxf|ogv|ogg)\d?$/i;
+                if (LIKELY_VIDEO_HINT.test(ext)) {
+                    console.warn(`[scanner] skipped "${abs}" — extension ".${ext}" isn't in the recognized video list.`);
+                }
+            }
+        }
+    }
 }
 /**
 * Scans the currently configured library folder — at any depth, recursively
@@ -604,258 +626,255 @@ console.warn(`[scanner] skipped "${abs}" — extension ".${ext}" isn't in the re
 * requests are just a JSON read. Returns [] if no folder has been chosen yet.
 */
 export async function getLibrary(forceRescan = false): Promise<VideoItem[]> {
-const paths = await getPaths();
-if (!paths) return [];
-if (scanInFlight) return scanInFlight;
-scanInFlight = (async () => {
-await ensureDirs(paths.thumbDir, paths.optimizedDir, paths.audioDir, paths.subtitleDir, paths.spriteDir);
-const cache = await loadCache(paths);
-// A forced rescan re-checks ffmpeg availability rather than trusting a
-// cached "false" forever — otherwise fixing the underlying problem
-// (installing ffmpeg, restoring a quarantined binary, etc) would be
-// invisible to the app until someone thought to clear the whole cache.
-if (cache.ffmpegAvailable === null || forceRescan) {
-cache.ffmpegAvailable = await checkFfmpegAvailable();
-}
-const found: { relativePath: string; abs: string; folder: string }[] = [];
-await walk(paths.root, paths.root, found);
-const seenIds = new Set<string>();
-// fs.stat for every file used to run sequentially here (one await per
-// file, in a for-loop) — for a library of a few hundred videos, that
-// serialized round-trip cost alone was the main source of slowness,
-// even on every normal page load, not just first-time scans. Statting
-// all files concurrently (bounded, like the ffprobe pass below) turns
-// an O(n) chain of awaits into a handful of parallel batches.
-const statResults = await runWithConcurrency(found, 24, async (f) => {
-const stat = await fs.stat(f.abs).catch((err) => {
-console.error(`[scanner] fs.stat failed for "${f.abs}" (${err?.code || err?.message || err}) — this file will be missing from the library until it's readable again.`);
-return null;
-});
-return { f, stat };
-});
-const items: VideoItem[] = [];
-const pending: { relativePath: string; abs: string; folder: string; id: string; stat: import("fs").Stats }[] = [];
-for (const { f, stat } of statResults) {
-if (!stat) continue;
-// Reuse the existing id for this path if we've seen it before (keeps
-// watch progress / optimize state alive across rescans); only a
-// genuinely new path gets a freshly generated one.
-let id = cache.pathIndex![f.relativePath];
-if (id && seenIds.has(id)) {
-// Data corruption guard: this id was ALREADY claimed by a different
-// relativePath earlier in this very scan. That can only mean the
-// on-disk pathIndex has two different file paths pointing at the
-// same id (possible fallout from an older version of this scanner).
-// Reusing it here would make this file silently overwrite the other
-// one's cache entry every scan forever — which looks exactly like
-// "this folder has 4 files but only 1 shows up." Breaking the
-// collision by minting a fresh id self-heals it on this one scan.
-console.error(
-`[scanner] id collision: "${f.relativePath}" was mapped to the same id as another file already seen in this scan. ` +
-`Assigning it a fresh id so both files are kept separately from now on. ` +
-`(This indicates stale/corrupted cache data — if other videos are still missing after this, hit Rescan once more.)`
-);
-id = undefined as any;
-}
-if (!id) id = makeId();
-cache.pathIndex![f.relativePath] = id;
-seenIds.add(id);
-const existing = cache.entries[id];
-const unchanged =
-existing && existing.size === stat.size && existing.mtimeMs === stat.mtimeMs;
-if (unchanged && !forceRescan) {
-items.push(toVideoItem(existing, f.folder, f.relativePath));
-if (cache.ffmpegAvailable) {
-const ext = path.extname(f.relativePath).slice(1).toLowerCase();
-scheduleFastStartCheck(paths, id, f.abs, ext, cache);
-scheduleMetaBackfill(paths, id, f.abs, cache);
-scheduleScrubSpriteBackfill(paths, id, f.abs, existing.duration, cache);
-}
-} else {
-pending.push({ ...f, id, stat });
-}
-}
-if (pending.length) {
-const processed = await runWithConcurrency(pending, 3, async (f) => {
-const meta = cache.ffmpegAvailable
-? await probeMeta(f.abs)
-: { duration: 0, codec: null, width: null, height: null, bitRate: null, vfr: false, audioTracks: [], subtitleTracks: [] };
-const hasThumbnail = cache.ffmpegAvailable
-? await generateThumbnail(f.abs, f.id, meta.duration, paths.thumbDir)
-: false;
-// A forced rescan reprocesses every file, including ones that are
-// byte-for-byte unchanged (e.g. after a move) — but that shouldn't
-// throw away an optimized copy that's still sitting on disk and
-// still valid (it's keyed by id, not by path). Carry it forward, and
-// keep the "needs optimizing" badge off for it accordingly.
-const previouslyOptimized = cache.entries[f.id]?.optimized === true;
-const entry: CacheEntry = {
-id: f.id,
-relativePath: f.relativePath,
-size: f.stat.size,
-mtimeMs: f.stat.mtimeMs,
-duration: meta.duration,
-hasThumbnail,
-codec: meta.codec,
-width: meta.width,
-height: meta.height,
-bitRate: meta.bitRate,
-vfr: meta.vfr,
-needsOptimize: previouslyOptimized ? false : needsOptimize(meta),
-optimized: previouslyOptimized,
-audioTracks: meta.audioTracks,
-subtitleTracks: meta.subtitleTracks,
-};
-cache.entries[f.id] = entry;
-if (cache.ffmpegAvailable) {
-if (!previouslyOptimized) {
-const ext = path.extname(f.relativePath).slice(1).toLowerCase();
-scheduleFastStartCheck(paths, f.id, f.abs, ext, cache);
-}
-scheduleScrubSpriteBackfill(paths, f.id, f.abs, meta.duration, cache);
-}
-return toVideoItem(entry, f.folder, f.relativePath);
-});
-items.push(...processed);
-}
-// prune deleted files from cache + their thumbnails/optimized copies
-for (const id of Object.keys(cache.entries)) {
-if (!seenIds.has(id)) {
-delete cache.entries[id];
-fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
-deleteScrubFrames(paths.spriteDir, id).catch(() => {});
-fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
-deleteAudioTrackFiles(paths, id).catch(() => {});
-}
-}
-// Rebuild pathIndex fresh from the final entries — self-healing against
-// any drift (e.g. a manual rename/delete between scans) rather than
-// trying to patch it incrementally.
-cache.pathIndex = {};
-for (const entry of Object.values(cache.entries)) {
-cache.pathIndex[entry.relativePath] = entry.id;
-}
-await saveCache(paths, cache);
-return items.sort((a, b) => a.name.localeCompare(b.name));
-})();
-try {
-return await scanInFlight;
-} finally {
-scanInFlight = null;
-}
+    const paths = await getPaths();
+    if (!paths) return [];
+    if (scanInFlight) return scanInFlight;
+    scanInFlight = (async () => {
+        await ensureDirs(paths.thumbDir, paths.optimizedDir, paths.audioDir, paths.subtitleDir, paths.spriteDir);
+        const cache = await loadCache(paths);
+        // A forced rescan re-checks ffmpeg availability rather than trusting a
+        // cached "false" forever — otherwise fixing the underlying problem
+        // (installing ffmpeg, restoring a quarantined binary, etc) would be
+        // invisible to the app until someone thought to clear the whole cache.
+        if (cache.ffmpegAvailable === null || forceRescan) {
+            cache.ffmpegAvailable = await checkFfmpegAvailable();
+        }
+        const found: { relativePath: string; abs: string; folder: string }[] = [];
+        await walk(paths.root, paths.root, found);
+        const seenIds = new Set<string>();
+        // fs.stat for every file used to run sequentially here (one await per
+        // file, in a for-loop) — for a library of a few hundred videos, that
+        // serialized round-trip cost alone was the main source of slowness,
+        // even on every normal page load, not just first-time scans. Statting
+        // all files concurrently (bounded, like the ffprobe pass below) turns
+        // an O(n) chain of awaits into a handful of parallel batches.
+        const statResults = await runWithConcurrency(found, 8, async (f) => {
+            const stat = await statWithRetry(f.abs);
+            return { f, stat };
+        });
+        const items: VideoItem[] = [];
+        const pending: { relativePath: string; abs: string; folder: string; id: string; stat: import("fs").Stats }[] = [];
+        for (const { f, stat } of statResults) {
+            if (!stat) continue;
+            // Reuse the existing id for this path if we've seen it before (keeps
+            // watch progress / optimize state alive across rescans); only a
+            // genuinely new path gets a freshly generated one.
+            let id = cache.pathIndex![f.relativePath];
+            if (id && seenIds.has(id)) {
+                // Data corruption guard: this id was ALREADY claimed by a different
+                // relativePath earlier in this very scan. That can only mean the
+                // on-disk pathIndex has two different file paths pointing at the
+                // same id (possible fallout from an older version of this scanner).
+                // Reusing it here would make this file silently overwrite the other
+                // one's cache entry every scan forever — which looks exactly like
+                // "this folder has 4 files but only 1 shows up." Breaking the
+                // collision by minting a fresh id self-heals it on this one scan.
+                console.error(
+                    `[scanner] id collision: "${f.relativePath}" was mapped to the same id as another file already seen in this scan. ` +
+                    `Assigning it a fresh id so both files are kept separately from now on. ` +
+                    `(This indicates stale/corrupted cache data — if other videos are still missing after this, hit Rescan once more.)`
+                );
+                id = undefined as any;
+            }
+            if (!id) id = makeId();
+            cache.pathIndex![f.relativePath] = id;
+            seenIds.add(id);
+            const existing = cache.entries[id];
+            const unchanged =
+                existing && existing.size === stat.size && existing.mtimeMs === stat.mtimeMs;
+            if (unchanged && !forceRescan) {
+                items.push(toVideoItem(existing, f.folder, f.relativePath));
+                if (cache.ffmpegAvailable) {
+                    const ext = path.extname(f.relativePath).slice(1).toLowerCase();
+                    scheduleFastStartCheck(paths, id, f.abs, ext, cache);
+                    scheduleMetaBackfill(paths, id, f.abs, cache);
+                    scheduleScrubSpriteBackfill(paths, id, f.abs, existing.duration, cache);
+                }
+            } else {
+                pending.push({ ...f, id, stat });
+            }
+        }
+        if (pending.length) {
+            const processed = await runWithConcurrency(pending, 3, async (f) => {
+                const meta = cache.ffmpegAvailable
+                    ? await probeMeta(f.abs)
+                    : { duration: 0, codec: null, width: null, height: null, bitRate: null, vfr: false, audioTracks: [], subtitleTracks: [] };
+                const hasThumbnail = cache.ffmpegAvailable
+                    ? await generateThumbnail(f.abs, f.id, meta.duration, paths.thumbDir)
+                    : false;
+                // A forced rescan reprocesses every file, including ones that are
+                // byte-for-byte unchanged (e.g. after a move) — but that shouldn't
+                // throw away an optimized copy that's still sitting on disk and
+                // still valid (it's keyed by id, not by path). Carry it forward, and
+                // keep the "needs optimizing" badge off for it accordingly.
+                const previouslyOptimized = cache.entries[f.id]?.optimized === true;
+                const entry: CacheEntry = {
+                    id: f.id,
+                    relativePath: f.relativePath,
+                    size: f.stat.size,
+                    mtimeMs: f.stat.mtimeMs,
+                    duration: meta.duration,
+                    hasThumbnail,
+                    codec: meta.codec,
+                    width: meta.width,
+                    height: meta.height,
+                    bitRate: meta.bitRate,
+                    vfr: meta.vfr,
+                    needsOptimize: previouslyOptimized ? false : needsOptimize(meta),
+                    optimized: previouslyOptimized,
+                    audioTracks: meta.audioTracks,
+                    subtitleTracks: meta.subtitleTracks,
+                };
+                cache.entries[f.id] = entry;
+                if (cache.ffmpegAvailable) {
+                    if (!previouslyOptimized) {
+                        const ext = path.extname(f.relativePath).slice(1).toLowerCase();
+                        scheduleFastStartCheck(paths, f.id, f.abs, ext, cache);
+                    }
+                    scheduleScrubSpriteBackfill(paths, f.id, f.abs, meta.duration, cache);
+                }
+                return toVideoItem(entry, f.folder, f.relativePath);
+            });
+            items.push(...processed);
+        }
+        // prune deleted files from cache + their thumbnails/optimized copies
+        for (const id of Object.keys(cache.entries)) {
+            if (!seenIds.has(id)) {
+                delete cache.entries[id];
+                fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => { });
+                deleteScrubFrames(paths.spriteDir, id).catch(() => { });
+                fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => { });
+                deleteAudioTrackFiles(paths, id).catch(() => { });
+            }
+        }
+        // Rebuild pathIndex fresh from the final entries — self-healing against
+        // any drift (e.g. a manual rename/delete between scans) rather than
+        // trying to patch it incrementally.
+        cache.pathIndex = {};
+        for (const entry of Object.values(cache.entries)) {
+            cache.pathIndex[entry.relativePath] = entry.id;
+        }
+        await saveCache(paths, cache);
+        return items.sort((a, b) => a.name.localeCompare(b.name));
+    })();
+    try {
+        return await scanInFlight;
+    } finally {
+        scanInFlight = null;
+    }
 }
 /** The displayed "folder" for a video is the directory it actually sits
 * in — the immediate parent, not the top-level folder under the library
 * root — so a deeply nested show still shows its season folder rather
 * than the show's umbrella folder. */
 function immediateFolder(relativePath: string): string {
-const idx = relativePath.lastIndexOf("/");
-if (idx === -1) return "";
-return relativePath.slice(0, idx).split("/").pop() || "";
+    const idx = relativePath.lastIndexOf("/");
+    if (idx === -1) return "";
+    return relativePath.slice(0, idx).split("/").pop() || "";
 }
 function toVideoItem(entry: CacheEntry, folder: string, relativePath: string): VideoItem {
-const ext = path.extname(relativePath).slice(1).toLowerCase();
-return {
-id: entry.id,
-name: path.basename(relativePath),
-relativePath,
-folder,
-size: entry.size,
-mtimeMs: entry.mtimeMs,
-duration: entry.duration,
-ext,
-hasThumbnail: entry.hasThumbnail,
-scrubSprite: entry.scrubSprite ?? null,
-needsOptimize: !!entry.needsOptimize && !entry.optimized,
-optimized: !!entry.optimized,
-audioTracks: entry.audioTracks || [],
-subtitleTracks: entry.subtitleTracks || [],
-};
+    const ext = path.extname(relativePath).slice(1).toLowerCase();
+    return {
+        id: entry.id,
+        name: path.basename(relativePath),
+        relativePath,
+        folder,
+        size: entry.size,
+        mtimeMs: entry.mtimeMs,
+        duration: entry.duration,
+        ext,
+        hasThumbnail: entry.hasThumbnail,
+        scrubSprite: entry.scrubSprite ?? null,
+        needsOptimize: !!entry.needsOptimize && !entry.optimized,
+        optimized: !!entry.optimized,
+        audioTracks: entry.audioTracks || [],
+        subtitleTracks: entry.subtitleTracks || [],
+    };
 }
 export async function isFfmpegAvailable(): Promise<boolean> {
-const paths = await getPaths();
-if (!paths) return !!(FFMPEG_BIN && FFPROBE_BIN) && (await checkFfmpegAvailable());
-const cache = await loadCache(paths);
-if (cache.ffmpegAvailable === null) {
-cache.ffmpegAvailable = await checkFfmpegAvailable();
-await saveCache(paths, cache);
-}
-return cache.ffmpegAvailable;
+    const paths = await getPaths();
+    if (!paths) return !!(FFMPEG_BIN && FFPROBE_BIN) && (await checkFfmpegAvailable());
+    const cache = await loadCache(paths);
+    if (cache.ffmpegAvailable === null) {
+        cache.ffmpegAvailable = await checkFfmpegAvailable();
+        await saveCache(paths, cache);
+    }
+    return cache.ffmpegAvailable;
 }
 export async function resolveVideoPath(
-id: string,
-trackIndex?: number
+    id: string,
+    trackIndex?: number
 ): Promise<{ absPath: string; ext: string; downloadName: string } | null> {
-const paths = await getPaths();
-if (!paths) return null;
-const cache = await loadCache(paths);
-const entry = cache.entries[id];
-if (!entry) return null;
-const originalBase = path.basename(entry.relativePath, path.extname(entry.relativePath));
-// A specific (non-default) audio track takes priority over the optimized
-// copy when both exist — someone who explicitly picked a language wants
-// that language, not whichever one the optimize pass happened to keep.
-if (trackIndex !== undefined && trackIndex > 0) {
-const trackPath = path.join(paths.audioDir, `${id}-${trackIndex}.mp4`);
-const stat = await fs.stat(trackPath).catch(() => null);
-if (stat) return { absPath: trackPath, ext: "mp4", downloadName: `${originalBase}.mp4` };
-}
-if (entry.optimized) {
-const optimizedPath = path.join(paths.optimizedDir, `${id}.mp4`);
-const stat = await fs.stat(optimizedPath).catch(() => null);
-// The optimized copy is always an mp4 container regardless of the
-// source format, so its download name should say .mp4 too — naming
-// it after the original extension would mislabel what's actually
-// inside the file.
-if (stat) return { absPath: optimizedPath, ext: "mp4", downloadName: `${originalBase}.mp4` };
-}
-const absPath = path.join(paths.root, entry.relativePath);
-// guard against any path traversal — resolved path must stay inside the library root
-if (!absPath.startsWith(paths.root)) return null;
-const ext = path.extname(entry.relativePath).slice(1).toLowerCase();
-return { absPath, ext, downloadName: path.basename(entry.relativePath) };
+    const paths = await getPaths();
+    if (!paths) return null;
+    const cache = await loadCache(paths);
+    const entry = cache.entries[id];
+    if (!entry) return null;
+    const originalBase = path.basename(entry.relativePath, path.extname(entry.relativePath));
+    // A specific (non-default) audio track takes priority over the optimized
+    // copy when both exist — someone who explicitly picked a language wants
+    // that language, not whichever one the optimize pass happened to keep.
+    if (trackIndex !== undefined && trackIndex > 0) {
+        const trackPath = path.join(paths.audioDir, `${id}-${trackIndex}.mp4`);
+        const stat = await fs.stat(trackPath).catch(() => null);
+        if (stat) return { absPath: trackPath, ext: "mp4", downloadName: `${originalBase}.mp4` };
+    }
+    if (entry.optimized) {
+        const optimizedPath = path.join(paths.optimizedDir, `${id}.mp4`);
+        const stat = await fs.stat(optimizedPath).catch(() => null);
+        // The optimized copy is always an mp4 container regardless of the
+        // source format, so its download name should say .mp4 too — naming
+        // it after the original extension would mislabel what's actually
+        // inside the file.
+        if (stat) return { absPath: optimizedPath, ext: "mp4", downloadName: `${originalBase}.mp4` };
+    }
+    const absPath = path.join(paths.root, entry.relativePath);
+    // guard against any path traversal — resolved path must stay inside the library root
+    if (!absPath.startsWith(paths.root)) return null;
+    const ext = path.extname(entry.relativePath).slice(1).toLowerCase();
+    return { absPath, ext, downloadName: path.basename(entry.relativePath) };
 }
 export async function resolveThumbnailPath(id: string): Promise<string | null> {
-const paths = await getPaths();
-if (!paths) return null;
-return path.join(paths.thumbDir, `${id}.jpg`);
+    const paths = await getPaths();
+    if (!paths) return null;
+    return path.join(paths.thumbDir, `${id}.jpg`);
 }
 export async function resolveScrubSpritePath(id: string, frame: number): Promise<string | null> {
-const paths = await getPaths();
-if (!paths) return null;
-return path.join(paths.spriteDir, `${id}_${frame}.jpg`);
+    const paths = await getPaths();
+    if (!paths) return null;
+    return path.join(paths.spriteDir, `${id}_${frame}.jpg`);
 }
 /** Everything the manual-optimize API route needs to kick off a transcode
 * job: the original (never the already-optimized) file path, its known
 * duration for progress %, and where the result should be written. */
 export async function getOptimizeTarget(
-id: string
+    id: string
 ): Promise<{ absPath: string; outPath: string; duration: number; alreadyOptimized: boolean } | null> {
-const paths = await getPaths();
-if (!paths) return null;
-const cache = await loadCache(paths);
-const entry = cache.entries[id];
-if (!entry) return null;
-const absPath = path.join(paths.root, entry.relativePath);
-if (!absPath.startsWith(paths.root)) return null;
-return {
-absPath,
-outPath: path.join(paths.optimizedDir, `${id}.mp4`),
-duration: entry.duration,
-alreadyOptimized: !!entry.optimized,
-};
+    const paths = await getPaths();
+    if (!paths) return null;
+    const cache = await loadCache(paths);
+    const entry = cache.entries[id];
+    if (!entry) return null;
+    const absPath = path.join(paths.root, entry.relativePath);
+    if (!absPath.startsWith(paths.root)) return null;
+    return {
+        absPath,
+        outPath: path.join(paths.optimizedDir, `${id}.mp4`),
+        duration: entry.duration,
+        alreadyOptimized: !!entry.optimized,
+    };
 }
 /** Marks a video as served from its optimized copy from now on (or reverts
 * the flag on failure so the original keeps being served). */
 export async function markOptimized(id: string, ok: boolean): Promise<void> {
-const paths = await getPaths();
-if (!paths) return;
-const cache = await loadCache(paths);
-if (cache.entries[id]) {
-cache.entries[id].optimized = ok;
-if (ok) cache.entries[id].needsOptimize = false;
-await saveCache(paths, cache);
-}
+    const paths = await getPaths();
+    if (!paths) return;
+    const cache = await loadCache(paths);
+    if (cache.entries[id]) {
+        cache.entries[id].optimized = ok;
+        if (ok) cache.entries[id].needsOptimize = false;
+        await saveCache(paths, cache);
+    }
 }
 const INVALID_FILENAME_CHARS = /[/\\?%*:|"<>\x00-\x1f]/g;
 /** Renames a video's file on disk. Deliberately scoped to changing just
@@ -869,86 +888,86 @@ const INVALID_FILENAME_CHARS = /[/\\?%*:|"<>\x00-\x1f]/g;
 * id is preserved either way, so watch progress, watched status, and any
 * optimize work stay intact. */
 export async function updateVideoLocation(
-id: string,
-opts: { name?: string; folder?: string }
+    id: string,
+    opts: { name?: string; folder?: string }
 ): Promise<VideoItem> {
-const paths = await getPaths();
-if (!paths) throw new Error("No library configured");
-const cache = await loadCache(paths);
-const entry = cache.entries[id];
-if (!entry) throw new Error("Video not found");
-const oldAbsPath = path.join(paths.root, entry.relativePath);
-const currentDir = path.dirname(entry.relativePath);
-const originalExt = path.extname(entry.relativePath);
-let finalName = path.basename(entry.relativePath);
-if (opts.name !== undefined) {
-const cleaned = opts.name.trim().replace(INVALID_FILENAME_CHARS, "").slice(0, 255);
-if (!cleaned) throw new Error("That name isn't valid");
-// If the new name doesn't include a recognized video extension, keep
-// the original one — otherwise the file would silently drop out of
-// the library on the next scan.
-const hasKnownExt = VIDEO_EXTENSIONS.has(path.extname(cleaned).slice(1).toLowerCase());
-finalName = hasKnownExt ? cleaned : `${cleaned}${originalExt}`;
-}
-let finalDir = currentDir === "." ? "" : currentDir;
-if (opts.folder !== undefined) {
-finalDir = opts.folder
-.split("/")
-.map((seg) => seg.trim().replace(INVALID_FILENAME_CHARS, ""))
-.filter((seg) => seg && seg !== "." && seg !== "..")
-.join("/");
-}
-const newRelativePath = finalDir ? `${finalDir}/${finalName}` : finalName;
-const newAbsPath = path.join(paths.root, newRelativePath);
-if (!newAbsPath.startsWith(paths.root)) throw new Error("Invalid path");
-if (newAbsPath === oldAbsPath) {
-const folder = immediateFolder(newRelativePath);
-return toVideoItem(entry, folder, newRelativePath);
-}
-const collision = await fs.stat(newAbsPath).catch(() => null);
-if (collision) throw new Error("A file with that name already exists there");
-await fs.mkdir(path.dirname(newAbsPath), { recursive: true });
-await fs.rename(oldAbsPath, newAbsPath);
-delete cache.pathIndex![entry.relativePath];
-entry.relativePath = newRelativePath;
-cache.pathIndex![newRelativePath] = id;
-await saveCache(paths, cache);
-const folder = immediateFolder(newRelativePath);
-return toVideoItem(entry, folder, newRelativePath);
+    const paths = await getPaths();
+    if (!paths) throw new Error("No library configured");
+    const cache = await loadCache(paths);
+    const entry = cache.entries[id];
+    if (!entry) throw new Error("Video not found");
+    const oldAbsPath = path.join(paths.root, entry.relativePath);
+    const currentDir = path.dirname(entry.relativePath);
+    const originalExt = path.extname(entry.relativePath);
+    let finalName = path.basename(entry.relativePath);
+    if (opts.name !== undefined) {
+        const cleaned = opts.name.trim().replace(INVALID_FILENAME_CHARS, "").slice(0, 255);
+        if (!cleaned) throw new Error("That name isn't valid");
+        // If the new name doesn't include a recognized video extension, keep
+        // the original one — otherwise the file would silently drop out of
+        // the library on the next scan.
+        const hasKnownExt = VIDEO_EXTENSIONS.has(path.extname(cleaned).slice(1).toLowerCase());
+        finalName = hasKnownExt ? cleaned : `${cleaned}${originalExt}`;
+    }
+    let finalDir = currentDir === "." ? "" : currentDir;
+    if (opts.folder !== undefined) {
+        finalDir = opts.folder
+            .split("/")
+            .map((seg) => seg.trim().replace(INVALID_FILENAME_CHARS, ""))
+            .filter((seg) => seg && seg !== "." && seg !== "..")
+            .join("/");
+    }
+    const newRelativePath = finalDir ? `${finalDir}/${finalName}` : finalName;
+    const newAbsPath = path.join(paths.root, newRelativePath);
+    if (!newAbsPath.startsWith(paths.root)) throw new Error("Invalid path");
+    if (newAbsPath === oldAbsPath) {
+        const folder = immediateFolder(newRelativePath);
+        return toVideoItem(entry, folder, newRelativePath);
+    }
+    const collision = await fs.stat(newAbsPath).catch(() => null);
+    if (collision) throw new Error("A file with that name already exists there");
+    await fs.mkdir(path.dirname(newAbsPath), { recursive: true });
+    await fs.rename(oldAbsPath, newAbsPath);
+    delete cache.pathIndex![entry.relativePath];
+    entry.relativePath = newRelativePath;
+    cache.pathIndex![newRelativePath] = id;
+    await saveCache(paths, cache);
+    const folder = immediateFolder(newRelativePath);
+    return toVideoItem(entry, folder, newRelativePath);
 }
 /** Deletes a video's file, its cached thumbnail, and any optimized copy. */
 export async function deleteVideo(id: string): Promise<void> {
-const paths = await getPaths();
-if (!paths) throw new Error("No library configured");
-const cache = await loadCache(paths);
-const entry = cache.entries[id];
-if (!entry) throw new Error("Video not found");
-const absPath = path.join(paths.root, entry.relativePath);
-if (!absPath.startsWith(paths.root)) throw new Error("Invalid path");
-await fs.unlink(absPath);
-await fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => {});
-await deleteScrubFrames(paths.spriteDir, id);
-await fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => {});
-await deleteAudioTrackFiles(paths, id);
-delete cache.entries[id];
-delete cache.pathIndex![entry.relativePath];
-await saveCache(paths, cache);
+    const paths = await getPaths();
+    if (!paths) throw new Error("No library configured");
+    const cache = await loadCache(paths);
+    const entry = cache.entries[id];
+    if (!entry) throw new Error("Video not found");
+    const absPath = path.join(paths.root, entry.relativePath);
+    if (!absPath.startsWith(paths.root)) throw new Error("Invalid path");
+    await fs.unlink(absPath);
+    await fs.unlink(path.join(paths.thumbDir, `${id}.jpg`)).catch(() => { });
+    await deleteScrubFrames(paths.spriteDir, id);
+    await fs.unlink(path.join(paths.optimizedDir, `${id}.mp4`)).catch(() => { });
+    await deleteAudioTrackFiles(paths, id);
+    delete cache.entries[id];
+    delete cache.pathIndex![entry.relativePath];
+    await saveCache(paths, cache);
 }
 async function deleteAudioTrackFiles(paths: LibraryPaths, id: string): Promise<void> {
-await deleteFilesForId(paths.audioDir, id);
-await deleteFilesForId(paths.subtitleDir, id);
+    await deleteFilesForId(paths.audioDir, id);
+    await deleteFilesForId(paths.subtitleDir, id);
 }
 async function deleteFilesForId(dir: string, id: string): Promise<void> {
-try {
-const files = await fs.readdir(dir);
-await Promise.all(
-files
-.filter((f) => f.startsWith(`${id}-`))
-.map((f) => fs.unlink(path.join(dir, f)).catch(() => {}))
-);
-} catch {
-// dir may not exist yet — nothing to clean up
-}
+    try {
+        const files = await fs.readdir(dir);
+        await Promise.all(
+            files
+                .filter((f) => f.startsWith(`${id}-`))
+                .map((f) => fs.unlink(path.join(dir, f)).catch(() => { }))
+        );
+    } catch {
+        // dir may not exist yet — nothing to clean up
+    }
 }
 /** Everything the audio-track switch API needs: the source file to remux
 * from (always the original, not an already-optimized copy, so track
@@ -956,45 +975,45 @@ files
 * per-track result should be written, and the track list to validate
 * against. */
 export async function getAudioTrackSwitchTarget(
-id: string,
-trackIndex: number
+    id: string,
+    trackIndex: number
 ): Promise<{ absPath: string; outPath: string; track: AudioTrackInfo } | null> {
-const paths = await getPaths();
-if (!paths) return null;
-const cache = await loadCache(paths);
-const entry = cache.entries[id];
-if (!entry) return null;
-const track = (entry.audioTracks || []).find((t) => t.index === trackIndex);
-if (!track) return null;
-const absPath = path.join(paths.root, entry.relativePath);
-if (!absPath.startsWith(paths.root)) return null;
-return { absPath, outPath: path.join(paths.audioDir, `${id}-${trackIndex}.mp4`), track };
+    const paths = await getPaths();
+    if (!paths) return null;
+    const cache = await loadCache(paths);
+    const entry = cache.entries[id];
+    if (!entry) return null;
+    const track = (entry.audioTracks || []).find((t) => t.index === trackIndex);
+    if (!track) return null;
+    const absPath = path.join(paths.root, entry.relativePath);
+    if (!absPath.startsWith(paths.root)) return null;
+    return { absPath, outPath: path.join(paths.audioDir, `${id}-${trackIndex}.mp4`), track };
 }
 /** Resolves the already-remuxed file for a specific audio track, if the
 * background job for it has finished. Returns null if it hasn't (or was
 * never requested) — the caller should fall back to the default stream. */
 export async function resolveAudioTrackPath(id: string, trackIndex: number): Promise<string | null> {
-const paths = await getPaths();
-if (!paths) return null;
-const outPath = path.join(paths.audioDir, `${id}-${trackIndex}.mp4`);
-const stat = await fs.stat(outPath).catch(() => null);
-return stat ? outPath : null;
+    const paths = await getPaths();
+    if (!paths) return null;
+    const outPath = path.join(paths.audioDir, `${id}-${trackIndex}.mp4`);
+    const stat = await fs.stat(outPath).catch(() => null);
+    return stat ? outPath : null;
 }
 /** Everything the subtitle extraction route needs: source file, cached
 * .vtt output path, and the track metadata (to reject image-based
 * subtitle formats up front rather than letting ffmpeg fail on them). */
 export async function getSubtitleExtractTarget(
-id: string,
-trackIndex: number
+    id: string,
+    trackIndex: number
 ): Promise<{ absPath: string; outPath: string; track: SubtitleTrackInfo } | null> {
-const paths = await getPaths();
-if (!paths) return null;
-const cache = await loadCache(paths);
-const entry = cache.entries[id];
-if (!entry) return null;
-const track = (entry.subtitleTracks || []).find((t) => t.index === trackIndex);
-if (!track) return null;
-const absPath = path.join(paths.root, entry.relativePath);
-if (!absPath.startsWith(paths.root)) return null;
-return { absPath, outPath: path.join(paths.subtitleDir, `${id}-${trackIndex}.vtt`), track };
+    const paths = await getPaths();
+    if (!paths) return null;
+    const cache = await loadCache(paths);
+    const entry = cache.entries[id];
+    if (!entry) return null;
+    const track = (entry.subtitleTracks || []).find((t) => t.index === trackIndex);
+    if (!track) return null;
+    const absPath = path.join(paths.root, entry.relativePath);
+    if (!absPath.startsWith(paths.root)) return null;
+    return { absPath, outPath: path.join(paths.subtitleDir, `${id}-${trackIndex}.vtt`), track };
 }
