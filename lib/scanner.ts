@@ -8,6 +8,12 @@ import { BUNDLED_FFMPEG_PATH, BUNDLED_FFPROBE_PATH } from "./ffmpeg-bin";
 import { isFastStart, remuxFastStart, FASTSTART_EXTS } from "./faststart";
 export const VIDEO_EXTENSIONS = new Set([
 "mp4", "webm", "ogg", "ogv", "mov", "mkv", "avi", "wmv", "flv", "m4v", "ts",
+// Additional containers that show up in real-world media libraries but
+// were previously silently skipped (no error, no log — the file just
+// never appeared). Missing from this set used to be the #1 cause of
+// "some videos don't show up."
+"mpg", "mpeg", "m2ts", "m2v", "mts", "3gp", "3g2", "vob", "divx", "rm",
+"rmvb", "asf", "f4v", "mxf", "qt", "mp2", "mpv", "mpe",
 ]);
 export const MIME_TYPES: Record<string, string> = {
 mp4: "video/mp4",
@@ -519,30 +525,72 @@ if (spriteQueue.some((q) => q.id === id)) return;
 spriteQueue.push({ paths, id, absPath, duration });
 processSpriteQueue();
 }
+// Tracks real (resolved) directory paths we've already descended into, so a
+// symlink loop (A/link -> B, B/link -> A) can't recurse forever — depth alone
+// doesn't catch a loop shorter than the depth cap.
+function skipExt(name: string): string {
+return path.extname(name).slice(1).toLowerCase();
+}
 async function walk(
 dir: string,
 base: string,
 out: { relativePath: string; abs: string; folder: string }[],
-depth = 0
+depth = 0,
+visitedReal = new Set<string>()
 ) {
-if (depth > 20) return; // guard against pathological symlink loops
+if (depth > 20) {
+console.warn(`[scanner] hit max recursion depth (20) at "${dir}" — stopping here. If your real folders are nested deeper than this, some videos won't be found.`);
+return;
+}
 let entries;
 try {
 entries = await fs.readdir(dir, { withFileTypes: true });
-} catch {
+} catch (err: any) {
+console.error(`[scanner] could not read directory "${dir}": ${err?.code || err?.message || err} — anything inside it will be missing from the library.`);
 return;
 }
 for (const entry of entries) {
 if (entry.name.startsWith(".")) continue;
 const abs = path.join(dir, entry.name);
-if (entry.isDirectory()) {
-await walk(abs, base, out, depth + 1);
-} else if (entry.isFile()) {
-const ext = path.extname(entry.name).slice(1).toLowerCase();
+let isDir = entry.isDirectory();
+let isFile = entry.isFile();
+// Dirent.isDirectory()/isFile() report the LINK's type, not its target —
+// so a symlinked folder or file (common in media libraries assembled
+// from multiple drives/shows) was previously silently skipped entirely.
+// Resolve it with a real stat (which follows symlinks) instead.
+if (entry.isSymbolicLink()) {
+const real = await fs.realpath(abs).catch(() => null);
+const stat = real ? await fs.stat(real).catch(() => null) : null;
+if (!stat) {
+console.warn(`[scanner] broken symlink, skipping: "${abs}"`);
+continue;
+}
+isDir = stat.isDirectory();
+isFile = stat.isFile();
+if (isDir) {
+if (visitedReal.has(real!)) {
+console.warn(`[scanner] symlink loop detected at "${abs}" -> "${real}", not descending again.`);
+continue;
+}
+visitedReal.add(real!);
+}
+}
+if (isDir) {
+await walk(abs, base, out, depth + 1, visitedReal);
+} else if (isFile) {
+const ext = skipExt(entry.name);
 if (VIDEO_EXTENSIONS.has(ext)) {
 const relativePath = path.relative(base, abs).split(path.sep).join("/");
 const folder = immediateFolder(relativePath);
 out.push({ relativePath, abs, folder });
+} else if (ext && entry.name.length > ext.length + 1) {
+// Breadcrumb for "why isn't my file showing up" — doesn't log every
+// non-video file (images, nfo, srt siblings are normal clutter),
+// only ones that look plausibly like an unsupported video container.
+const LIKELY_VIDEO_HINT = /^(mp4|mkv|avi|mov|mpg|mpeg|wmv|flv|webm|ts|vob|rm|asf|divx|m2ts|m2v|mts|3gp|f4v|mxf|ogv|ogg)\d?$/i;
+if (LIKELY_VIDEO_HINT.test(ext)) {
+console.warn(`[scanner] skipped "${abs}" — extension ".${ext}" isn't in the recognized video list.`);
+}
 }
 }
 }
