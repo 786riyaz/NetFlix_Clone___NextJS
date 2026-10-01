@@ -627,7 +627,10 @@ const seenIds = new Set<string>();
 // all files concurrently (bounded, like the ffprobe pass below) turns
 // an O(n) chain of awaits into a handful of parallel batches.
 const statResults = await runWithConcurrency(found, 24, async (f) => {
-const stat = await fs.stat(f.abs).catch(() => null);
+const stat = await fs.stat(f.abs).catch((err) => {
+console.error(`[scanner] fs.stat failed for "${f.abs}" (${err?.code || err?.message || err}) — this file will be missing from the library until it's readable again.`);
+return null;
+});
 return { f, stat };
 });
 const items: VideoItem[] = [];
@@ -637,7 +640,24 @@ if (!stat) continue;
 // Reuse the existing id for this path if we've seen it before (keeps
 // watch progress / optimize state alive across rescans); only a
 // genuinely new path gets a freshly generated one.
-const id = cache.pathIndex![f.relativePath] || makeId();
+let id = cache.pathIndex![f.relativePath];
+if (id && seenIds.has(id)) {
+// Data corruption guard: this id was ALREADY claimed by a different
+// relativePath earlier in this very scan. That can only mean the
+// on-disk pathIndex has two different file paths pointing at the
+// same id (possible fallout from an older version of this scanner).
+// Reusing it here would make this file silently overwrite the other
+// one's cache entry every scan forever — which looks exactly like
+// "this folder has 4 files but only 1 shows up." Breaking the
+// collision by minting a fresh id self-heals it on this one scan.
+console.error(
+`[scanner] id collision: "${f.relativePath}" was mapped to the same id as another file already seen in this scan. ` +
+`Assigning it a fresh id so both files are kept separately from now on. ` +
+`(This indicates stale/corrupted cache data — if other videos are still missing after this, hit Rescan once more.)`
+);
+id = undefined as any;
+}
+if (!id) id = makeId();
 cache.pathIndex![f.relativePath] = id;
 seenIds.add(id);
 const existing = cache.entries[id];
